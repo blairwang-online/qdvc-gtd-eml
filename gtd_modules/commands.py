@@ -20,12 +20,27 @@ from .report import print_report
 
 def cmd_list(argv):
     """
-    `gtd.py list` — ingest any new input files, sync metadata, and print the
-    full colour-coded status report. (This is the original gtd.py behaviour.)
+    `gtd.py list [folder]` — ingest any new input files, sync metadata, and
+    print the colour-coded status report. With no argument the full report is
+    shown; with a folder name/alias (e.g. `actionable`, `delegated`,
+    `05-reference`) only that segment is printed.
 
     Example:
-        cmd_list([])  # -> prints the report, returns 0
+        cmd_list([])              # -> prints the full report, returns 0
+        cmd_list(["actionable"])  # -> prints just the actionable segment
     """
+    only = None
+    if len(argv) > 1:
+        print("usage: gtd.py list [folder]", file=sys.stderr)
+        return 2
+    if argv:
+        only = fs.resolve_folder(argv[0])
+        if only is None:
+            print(f"error: unknown folder '{argv[0]}'", file=sys.stderr)
+            print("       choose one of: " + ", ".join(cfg_mod.FOLDERS_BY_ALIAS),
+                  file=sys.stderr)
+            return 2
+
     cfg = cfg_mod.load_config()
     base_dir = cfg["working_directory"]
     colour_enabled = cfg_mod.should_use_colour(cfg, sys.stdout)
@@ -50,7 +65,38 @@ def cmd_list(argv):
     print_report(base_dir, cfg["archive_report_n"], colour_cfg,
                  accounts=cfg["my_own_accounts"],
                  max_subject=cfg["max_subject_chars"],
-                 metadata=metadata)
+                 metadata=metadata, only=only)
+    return 0
+
+
+def cmd_stats(argv):
+    """
+    `gtd.py stats` — print each workflow folder and how many .eml files it holds,
+    plus a total.
+
+    Example:
+        cmd_stats([])
+        # === file counts ===
+        #   01-input         0
+        #   02-triage        3
+        #   ...
+        #   total            7
+    """
+    if argv:
+        print("usage: gtd.py stats", file=sys.stderr)
+        return 2
+
+    base_dir = cfg_mod.load_config()["working_directory"]
+    fs.ensure_folders(base_dir)
+
+    width = max(len(f) for f in cfg_mod.ALL_DIRS)
+    total = 0
+    print("=== file counts ===")
+    for folder in cfg_mod.ALL_DIRS:
+        n = len(fs.list_eml_files(base_dir, folder))
+        total += n
+        print(f"  {folder.ljust(width)}   {n:>4}")
+    print(f"  {'total'.ljust(width)}   {total:>4}")
     return 0
 
 
@@ -207,11 +253,19 @@ USAGE
     gtd.py <command> [arguments]
 
 COMMANDS
-    list
+    list [folder]
         Ingest any new emails from 01-input, then print the status report
-        across all folders (colour-coded by age). This is the main view.
+        (colour-coded by age). With no argument, every folder is shown. Give a
+        folder name or alias to show just that segment:
+            actionable | delegated | reference | archive | triage | input
         Pipe it through a pager to scroll:
             FORCE_COLOR=1 python3 gtd.py list | less -R
+            python3 gtd.py list actionable
+
+    stats
+        Show each workflow folder and how many emails it currently holds,
+        plus a total:
+            python3 gtd.py stats
 
     view <file.eml>
         Preview a single email — headers, attachments, and body (base64 is

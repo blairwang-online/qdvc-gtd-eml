@@ -11,7 +11,8 @@ Folder structure (relative to working_directory, set in config.yml):
     06-archive     <- you file emails here
 
 Commands (run `gtd.py help` for details):
-    gtd.py list                       ingest new input + print the status report
+    gtd.py list [folder]              ingest new input + print the status report
+    gtd.py stats                      show how many emails are in each folder
     gtd.py view <file.eml>            preview a single email
     gtd.py alloc <file.eml> <dest>    move an email to another folder
     gtd.py metadata <file.eml> ...    get/set a metadata.csv field
@@ -29,6 +30,7 @@ from gtd_modules import commands
 # and returns an exit code.
 COMMANDS = {
     "list": commands.cmd_list,
+    "stats": commands.cmd_stats,
     "view": commands.cmd_view,
     "alloc": commands.cmd_alloc,
     "metadata": commands.cmd_metadata,

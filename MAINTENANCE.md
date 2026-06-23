@@ -34,7 +34,8 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 
 | Command | Purpose |
 | --- | --- |
-| `python gtd.py list` | Run the full workflow: ingest → sync metadata → print report. |
+| `python gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
+| `python gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
 | `python gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
@@ -177,7 +178,7 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
 
 `gtd.py` maps the first argument to a handler in `commands.py`, then calls it.
 
-**`list`** (`commands.cmd_list`) — the original full workflow:
+**`list [folder]`** (`commands.cmd_list`) — the full workflow:
 
 1. `config.load_config()` → settings dict.
 2. `fs.ensure_folders()` → creates any missing folders (and the
@@ -189,6 +190,16 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
    now exist; newly-ingested refs are seeded into the `message_ref` column.
 5. `metadata.load_metadata()` then `report.print_report()` → the on-screen
    report.
+
+Ingestion always runs (even when a folder is given). A `folder` argument is
+resolved via `fs.resolve_folder()` and passed as `print_report(..., only=...)`,
+which prints just that segment. A specifically-requested folder is shown in
+full — the archive's `archive_report_n` cap applies only to the unfiltered
+report.
+
+**`stats`** (`commands.cmd_stats`) — `fs.ensure_folders()` then
+`fs.list_eml_files()` per folder, printing each count and a total. Read-only;
+does not ingest or modify anything.
 
 **`view`** (`commands.cmd_view`) — `fs.find_eml()` to locate the file across all
 folders, then `preview.render()`.
@@ -335,6 +346,8 @@ There's no formal test suite. A fast manual smoke test:
 mkdir -p data/01-input          # point working_directory at ./data in config.yml
 # drop a sample .eml into data/01-input, then:
 python gtd.py list              # should ingest, write metadata.csv, print report
+python gtd.py list delegated    # just the delegated segment
+python gtd.py stats             # per-folder counts + total
 python gtd.py view <the-new-filename>
 python gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
 python gtd.py metadata <the-new-filename> set next_action = "Reply soon"

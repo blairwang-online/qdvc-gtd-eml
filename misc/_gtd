@@ -79,7 +79,8 @@ _gtd_eml_files() {
 _gtd() {
     local -a subcommands
     subcommands=(
-        'list:Ingest new input and print the status report'
+        'list:Print the status report (optionally one folder)'
+        'stats:Show how many emails are in each folder'
         'view:Preview a single email'
         'alloc:Move an email to another folder'
         'metadata:Get or set a metadata.csv field'
@@ -87,6 +88,7 @@ _gtd() {
     )
 
     local -a destinations fields
+    # Folder aliases accepted by `alloc` and `list` (mirror FOLDERS_BY_ALIAS).
     destinations=(actionable delegated reference archive triage input)
     fields=(general_notes project next_action flags message_ref)
 
@@ -99,6 +101,10 @@ _gtd() {
 
     local cmd="${words[2]}"
     case "$cmd" in
+        list)
+            # Optional single folder to show just that segment.
+            (( CURRENT == 3 )) && _describe -t folders 'folder' destinations
+            ;;
         view)
             (( CURRENT == 3 )) && _gtd_eml_files
             ;;

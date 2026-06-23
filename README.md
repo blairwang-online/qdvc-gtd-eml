@@ -29,6 +29,8 @@ keeps in sync.
 
 ```bash
 python gtd.py list                       # ingest new files + print the report
+python gtd.py list <folder>              # show just one folder (e.g. actionable)
+python gtd.py stats                      # count emails in each folder
 python gtd.py view <file.eml>            # preview one email (headers + body)
 python gtd.py alloc <file.eml> <dest>    # move an email to another folder
 python gtd.py metadata <file.eml> ...    # get/set a metadata.csv field

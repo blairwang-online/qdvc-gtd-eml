@@ -212,21 +212,40 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
 
 
 def print_report(base_dir, archive_n, colour_cfg, accounts=None,
-                 max_subject=0, metadata=None):
+                 max_subject=0, metadata=None, only=None):
     """
-    Print the full GTD status report across the relevant folders. next_action
-    lines are shown for triage/actionable/delegated/reference but NOT for the
-    archive. The matched own-account label is shown in every segment.
+    Print the GTD status report. next_action lines are shown for
+    triage/actionable/delegated/reference but NOT for the archive. The matched
+    own-account label is shown in every segment.
+
+    `only`, if given, is a single canonical folder name (e.g. "03-actionable");
+    just that folder is printed. When showing a single folder the archive
+    `limit` is not applied (you asked for that folder specifically, so show it
+    all); in the full report the archive is still capped at archive_n.
 
     Example:
         print_report("/home/me/gtd", 10, (2, 14, True), accounts=accts,
                      max_subject=72, metadata=meta)
-        # -> prints triage, actionable, delegated, reference, last-10 archive blocks
+        # -> prints all segments
+        print_report(..., only="03-actionable")
+        # -> prints just the actionable segment
     """
     common = dict(accounts=accounts, max_subject=max_subject, metadata=metadata)
-    report_folder(base_dir, config.TRIAGE_DIR, colour_cfg, show_next_action=True, **common)
-    report_folder(base_dir, config.ACTIONABLE_DIR, colour_cfg, show_next_action=True, **common)
-    report_folder(base_dir, config.DELEGATED_DIR, colour_cfg, show_next_action=True, **common)
-    report_folder(base_dir, config.REFERENCE_DIR, colour_cfg, show_next_action=True, **common)
-    report_folder(base_dir, config.ARCHIVE_DIR, colour_cfg, show_next_action=False,
-                  limit=archive_n, **common)
+
+    # (folder, show_next_action, limit_in_full_report)
+    segments = [
+        (config.TRIAGE_DIR, True, None),
+        (config.ACTIONABLE_DIR, True, None),
+        (config.DELEGATED_DIR, True, None),
+        (config.REFERENCE_DIR, True, None),
+        (config.ARCHIVE_DIR, False, archive_n),
+    ]
+
+    for folder, show_next_action, limit in segments:
+        if only is not None and folder != only:
+            continue
+        # A specifically-requested single folder is shown in full (no limit).
+        effective_limit = None if only is not None else limit
+        report_folder(base_dir, folder, colour_cfg,
+                      show_next_action=show_next_action,
+                      limit=effective_limit, **common)

@@ -1216,3 +1216,58 @@ Attached:
 
 - README.md _(as of this commit)_
 - MAINTENANCE.md _(as of this commit)_
+
+## 63. User request
+
+Some feature requests:
+
+1. `gtd stats` (lists each folder and how many files are located there)
+2. `gtd list actionable`, `gtd list delegated` etc. (shows subset of `gtd list` for the relevant category)
+
+Please ensure that you update README.md, MAINTENANCE.md, and shell completion materials as needed.
+
+## 64. LLM response
+
+Two features. Let me check the current `cmd_list` and `print_report` to see how to add a folder filter, plus the folder constants.I'll refactor `print_report` to drive off a list of (folder, show_next_action, limit) tuples, with an optional `only` filter. This makes both the full report and the single-folder subset share one code path. Archive keeps its limit only in the full view; when a user explicitly asks `gtd list archive`, showing all archive items (no limit) is more useful — I'll make the limit apply only in the unfiltered full report.Now update `cmd_list` to accept an optional folder argument, and add `cmd_stats`. A design note for `list <folder>`: ingestion should still happen (it's harmless and keeps triage fresh), but the printed report is filtered. Let me update `cmd_list`.Now add `cmd_stats`. I'll place it after `cmd_list`. It lists every folder and its `.eml` count, plus a total.Now register `stats` in the dispatcher and update HELP_TEXT. First the dispatcher.Now HELP_TEXT in commands.py — update the `list` entry and add `stats`.Now test both features and edge cases.Both work. `stats` lists all six folders with counts and a total (6); `list actionable` and `list 04-delegated` show only the requested segment (both alias and full-name forms). The stray "Arch 01..." lines at the top are just my test's leftover `printf` loop writing to stdout — not from the tool.
+
+Now verify: archive shown in full when explicitly requested (no limit), full `list` still caps archive at 2, and error handling for an unknown folder.All behaviours correct:
+- `list archive` shows all 3 (header says "3 files", all listed — no limit when explicitly requested).
+- Full `list` caps the archive at 2 (still says "3 files" in the header but lists only the 2 most recent — the intended behaviour).
+- Unknown folder, too many args, and `stats` with an arg all exit 2 with helpful messages.
+
+Now the shell completion. `list` needs to complete folder names at position 3, and `stats` needs to be in the subcommands list (taking no args).The `_gtd` file isn't in outputs anymore (it was presented earlier but the working copy I edited may have been the original path). Let me check.The `_gtd` is at the outputs root and there's a `SHELL_COMPLETION.md` from earlier. You mentioned saving the doc as `misc/shell_completion.md` on your end. Let me organize the deliverables to match your layout: move `_gtd` and the doc into `misc/` with the lowercase doc name. First let me view the completion file's relevant sections.Now move the completion files into `misc/` to match your layout (lowercase doc name), and remove the stray copies.Now test the completion changes live: `list <TAB>` should offer folders, and `stats` should appear in the subcommand list.Both completion behaviours confirmed: `gtd s<TAB>` → `gtd stats`, and `gtd list <TAB>` offers the folder names.
+
+Now update the docs. README usage block and MAINTENANCE (entry-points table, command-flow, and the completion-sync note will already be satisfied since I updated the arrays). Let me update README first.Now MAINTENANCE: the entry-points table and command-flow section.Now the command-flow section §6 — update the `list` description and add `stats`.The §7 completion-sync note already covers "add a subcommand → update subcommands array" and folder aliases, so no change needed there — both new behaviours fit existing guidance. Let me also update the §9 testing checks to mention stats and filtered list, and verify the full help output.Final verification: run `help` to confirm both commands appear correctly, and confirm the docs reference `misc/_gtd` consistently (the layout listing I added earlier).Everything's in order. Let me present the changed files.Both features are in and tested.
+
+**`gtd.py stats`** — lists every workflow folder with its `.eml` count and a total. Read-only (doesn't ingest or modify anything):
+
+```
+=== file counts ===
+  01-input           0
+  02-triage          0
+  03-actionable      2
+  04-delegated       1
+  05-reference       0
+  06-archive         3
+  total              6
+```
+
+**`gtd.py list <folder>`** — accepts a folder alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or full name (`04-delegated`) and prints just that segment. Implemented by refactoring `print_report` to take an `only=` filter. Ingestion still runs; an unknown folder exits 2 with the valid list. One deliberate nuance: when you ask for `archive` specifically, you get *all* of it — the `archive_report_n` cap only applies to the unfiltered full report.
+
+**Docs and completion updated:**
+- README usage block lists both new commands.
+- MAINTENANCE: entry-points table, command-flow section (with the `only=`/ingestion/archive-cap details and the read-only `stats` note), and the smoke-test recipe.
+- `misc/_gtd`: added `stats` to the subcommand list and a `list` branch that completes folder names. Verified live — `gtd s<TAB>` → `gtd stats`, `gtd list <TAB>` → folder names.
+
+I also tidied the deliverables to match your layout: `_gtd` and the guide now live in `misc/`, and I renamed the doc to `misc/shell_completion.md` (lowercase) to match what you saved on your end.
+
+One note worth flagging: `stats` counts files in the folders directly rather than reading `metadata.csv`, so the numbers reflect what's actually on disk even if `metadata.csv` is stale — which seemed like the more truthful thing for a "where are my files" command. If you'd rather it also surface, say, how many have a `next_action` set or are pinned, that'd be an easy extension.
+
+Attached:
+
+- commands.py
+- report.py
+- gtd.py
+- _gtd
+- README.md
+- MAINTENANCE.md
