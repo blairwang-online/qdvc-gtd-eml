@@ -271,3 +271,31 @@ The HTML-to-text conversion is deliberately simple (strips tags, decodes a handf
 The output is plain text with no ANSI colour, keeping it portable for piping and redirection. If you'd like the header labels colourized to match `gtd.py`'s style when output is a terminal, that's a small addition.
 
 Attached: gtd_email_preview.py _(as of this commit)_
+
+## 17. User request
+
+I am piping the output of gtd_email_preview.py tool to `glow`, which is sensitive to markdown-type formatting cues. So, please make the following changes;
+
+* The first line starts with a #, so it renders as a heading 1. That's perfect, but please put a blank line after it.
+* Instead of using 72 x `=` for the header, use ``` so that it is treated as a plaintext code fence.
+
+## 18. LLM response
+
+Both are small changes in the `render` function. Let me view it.There are two `=` separator lines wrapping the header block. I'll turn them into a code fence: open ` ``` ` after the blank line below the H1, and close ` ``` ` after the attachments. The body stays outside the fence.Both changes are in. The output now has a blank line after the `#` heading, and the header block is wrapped in ` ``` ` fences (open after the blank line, close before a blank line and the body), so `glow` treats the headers as a plaintext code block and the body as normal markdown.Done. Output structure is now:
+
+```
+# filename.eml   [folder]
+            ← blank line
+```          ← opening fence
+From:    ...
+Date:    ...
+...
+Attached: ...
+```          ← closing fence
+            ← blank line
+<body>
+```
+
+One thing worth flagging for `glow`: the email body is now rendered as plain markdown, so if a body happens to contain markdown-significant characters (a line starting with `#`, `*`, `-`, etc.), `glow` will interpret them as formatting. That's fine for most plain-text emails, but if you'd rather the body always render literally, I could wrap it in its own code fence too — though that would lose any intentional formatting. Let me know if you want that.
+
+Attached: gtd_email_preview.py _(as of this commit)_

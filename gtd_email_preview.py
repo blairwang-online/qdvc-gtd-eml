@@ -254,7 +254,8 @@ def render(message, path):
     """
     folder = os.path.basename(os.path.dirname(path))
     print(f"# {os.path.basename(path)}   [{folder}]")
-    print("=" * 72)
+    print()
+    print("```")
 
     always_show = {"From", "Date", "Subject"}
     for label, header in (("From", "From"), ("Date", None),
@@ -275,7 +276,8 @@ def render(message, path):
         joiner = "\n" + " " * 9
         print(f"{'Attached:':<8} " + joiner.join(attachments))
 
-    print("=" * 72)
+    print("```")
+    print()
     body = extract_body(message)
     print(body if body.strip() else "(no text body)")
 
