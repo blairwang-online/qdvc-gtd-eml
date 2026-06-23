@@ -64,3 +64,5 @@ Notes on the implementation:
 Run it with `python3 gtd.py` from wherever the 5 folders should live (or place the script in that root). Each function carries an example-input/output comment as requested.
 
 One thing to flag: subjects in the report show the original (with punctuation/casing), while filenames use the slug — that matched your example. If you'd rather the report show the slug-style description instead, that's a one-line change.
+
+Attached: gtd.py _(as of this commit)_
