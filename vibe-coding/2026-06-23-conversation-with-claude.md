@@ -672,10 +672,72 @@ Let me update the docstring examples that show the old ordering, then test.Fixed
                     [Personal account]
                     └─ PINNED
                     └─ next: Do this first
-```Done. Swapped the order so the `[account]` label is emitted first, then the tree-style indicators (`└─ PINNED`, then `└─ next:`) follow it grouped together. Docstrings updated to match.
+```
+
+Done. Swapped the order so the `[account]` label is emitted first, then the tree-style indicators (`└─ PINNED`, then `└─ next:`) follow it grouped together. Docstrings updated to match.
 
 
 Attached: 
 
 - report.py _(as of this commit)_
 
+## 39. User request
+
+I'm going to restructure the folders:
+
+* 03-delegated _(new folder)_
+* 04-reference --> becomes 05-reference
+* 05-archive --> becomes 06-archive
+
+Please update the codebase and documentation accordingly. Nothing special has to happen with 03-delegated, it can be treated as if it were the same as 02-actionable.
+
+## 40. LLM response
+
+I notice a couple of ambiguities. You wrote "02-actionable" but the current folder is `03-actionable` — and you're inserting `03-delegated`, which collides with the existing `03-actionable` number. Let me look at how folders are defined to confirm the target numbering before changing anything.Right. The current layout is `01-input, 02-triage, 03-actionable, 04-reference, 05-archive`. Based on your intent (insert `03-delegated`, and reference/archive shift up to 05/06), the only consistent interpretation is that **actionable stays at 03** and delegated becomes **04** — otherwise two folders share `03`. So the new layout is:
+
+```
+01-input
+02-triage
+03-actionable     (unchanged)
+04-delegated      (new — treated like actionable)
+05-reference      (was 04-reference)
+06-archive        (was 05-archive)
+```
+
+That keeps your reference→05 and archive→06 renames exactly as you specified, with delegated slotting in at 04. Let me proceed on that basis. First, let me find every reference to these folders across the code and docs.Now `print_report` needs to include the delegated folder, treated like actionable (next-action shown). Let me view it.Now fix the docstring path examples in fs.py and report.py.That one was already fine (actionable stays at 03). Now the gtd.py module docstring folder list.Now let me find folder references in the documentation.Let me update MAINTENANCE.md first.Let me also check the §1 intro list in MAINTENANCE (the numbered "what the system does") and the report-folder description mention near "every segment", and whether `delegated treated like actionable` deserves a note. Let me view the run-flow/report sections to add a clarifying note.Now the README.Now test: confirm all six folders are created, delegated behaves like actionable (shows next-action), and reference/archive sit at their new numbers.Everything works:
+- All six folders created in order: `01-input` … `04-delegated`, `05-reference`, `06-archive`.
+- `04-delegated` behaves like actionable — it shows the `└─ next: Chase Bob` line.
+- `06-archive` correctly suppresses next-action (the "should NOT show" value doesn't appear).
+- The report iterates all five reportable sections in the new order.Done. The new folder structure is:
+
+```
+01-input
+02-triage
+03-actionable     (unchanged)
+04-delegated      (new — behaves exactly like actionable)
+05-reference      (was 04-reference)
+06-archive        (was 05-archive)
+```
+
+**Code changes:**
+- `config.py`: added `DELEGATED_DIR = "04-delegated"`, renumbered `REFERENCE_DIR` → `05-reference` and `ARCHIVE_DIR` → `06-archive`, and inserted delegated into `ALL_DIRS` (so it's auto-created and counted everywhere).
+- `report.py`: `print_report` now renders the delegated section with `show_next_action=True`, identical to actionable.
+- `gtd.py`: module docstring folder list updated.
+
+**Docs:** README and MAINTENANCE updated — folder diagrams, filing instructions, disk-layout block, and the next-action segment list. I also added a MAINTENANCE note that `04-delegated` is treated identically to `03-actionable`.
+
+One thing I had to resolve: your message said "treated as if it were the same as 02-actionable", but the actionable folder is `03-actionable`, and slotting `03-delegated` in would have collided with it. The only consistent reading of your reference→05 / archive→06 renames is that actionable stays at `03` and delegated takes `04`, which is what I implemented. If you actually wanted delegated at `03` and actionable renumbered, let me know and I'll adjust.
+
+Two operational notes:
+
+This changes only the code's expectations — it doesn't move your existing on-disk folders. If you already have a `04-reference` and `05-archive` with files in them, you'll want to rename those directories on disk to `05-reference` and `06-archive` (and `mkdir 04-delegated`), or the tool will treat the old ones as absent and create fresh empty ones. The next `gtd.py` run creates any missing folders automatically.
+
+`metadata.csv` keys off filenames, not folder paths, so moving files between the renamed folders won't disturb their metadata rows.
+
+Attached:
+
+- config.py _(as of this commit)_
+- report.py _(as of this commit)_
+- gtd.py _(as of this commit)_
+- maintenance.md _(as of this commit)_
+- README.md _(as of this commit)_

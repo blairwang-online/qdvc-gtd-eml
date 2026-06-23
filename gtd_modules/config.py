@@ -43,10 +43,11 @@ COLOURS = {
 INPUT_DIR = "01-input"
 TRIAGE_DIR = "02-triage"
 ACTIONABLE_DIR = "03-actionable"
-REFERENCE_DIR = "04-reference"
-ARCHIVE_DIR = "05-archive"
+DELEGATED_DIR = "04-delegated"
+REFERENCE_DIR = "05-reference"
+ARCHIVE_DIR = "06-archive"
 
-ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, REFERENCE_DIR, ARCHIVE_DIR]
+ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, DELEGATED_DIR, REFERENCE_DIR, ARCHIVE_DIR]
 METADATA_FILE = "metadata.csv"
 METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "message_ref", "flags"]
 

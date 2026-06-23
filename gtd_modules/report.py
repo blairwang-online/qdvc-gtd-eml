@@ -215,17 +215,18 @@ def print_report(base_dir, archive_n, colour_cfg, accounts=None,
                  max_subject=0, metadata=None):
     """
     Print the full GTD status report across the relevant folders. next_action
-    lines are shown for triage/actionable/reference but NOT for the archive. The
-    matched own-account label is shown in every segment.
+    lines are shown for triage/actionable/delegated/reference but NOT for the
+    archive. The matched own-account label is shown in every segment.
 
     Example:
         print_report("/home/me/gtd", 10, (2, 14, True), accounts=accts,
                      max_subject=72, metadata=meta)
-        # -> prints triage, actionable, reference, last-10 archive blocks
+        # -> prints triage, actionable, delegated, reference, last-10 archive blocks
     """
     common = dict(accounts=accounts, max_subject=max_subject, metadata=metadata)
     report_folder(base_dir, config.TRIAGE_DIR, colour_cfg, show_next_action=True, **common)
     report_folder(base_dir, config.ACTIONABLE_DIR, colour_cfg, show_next_action=True, **common)
+    report_folder(base_dir, config.DELEGATED_DIR, colour_cfg, show_next_action=True, **common)
     report_folder(base_dir, config.REFERENCE_DIR, colour_cfg, show_next_action=True, **common)
     report_folder(base_dir, config.ARCHIVE_DIR, colour_cfg, show_next_action=False,
                   limit=archive_n, **common)

@@ -13,14 +13,15 @@ You export emails as `.eml` files into `01-input/`. Running `gtd.py`:
 - prints a **status report** of what's in each folder, colour-coded by age, with
   correspondents and your next action.
 
-You then manually move each triaged file into `03-actionable/`, `04-reference/`,
-or `05-archive/`. Annotations (notes, project, next action) live in a
-`metadata.csv` the tool keeps in sync.
+You then manually move each triaged file into `03-actionable/`, `04-delegated/`,
+`05-reference/`, or `06-archive/`. Annotations (notes, project, next action) live
+in a `metadata.csv` the tool keeps in sync.
 
 ```
 01-input  →  02-triage  →  03-actionable
-                        ↘  04-reference
-                        ↘  05-archive
+                        ↘  04-delegated
+                        ↘  05-reference
+                        ↘  06-archive
 ```
 
 ## Usage

@@ -15,7 +15,7 @@ folder. The toolkit then:
    filename from the date + subject (plus a detected *message ref*), and moves
    it into `02-triage`.
 2. Leaves **you** to manually file each triaged email into `03-actionable`,
-   `04-reference`, or `05-archive`.
+   `04-delegated`, `05-reference`, or `06-archive`.
 3. **Reports** on what's sitting in each folder — colour-coded by age, showing
    correspondents, which of your own accounts received it, and the next action.
 4. Keeps a **`metadata.csv`** at the working-directory root in sync with the
@@ -42,7 +42,7 @@ Both are deliberately thin (~60 lines). All real logic lives in the
 
 ## 3. Folder layout on disk
 
-The five workflow folders and `metadata.csv` live under the configured
+The six workflow folders and `metadata.csv` live under the configured
 `working_directory` (NOT necessarily next to the code):
 
 ```
@@ -50,8 +50,9 @@ The five workflow folders and `metadata.csv` live under the configured
     01-input/         # you drop new .eml files here
     02-triage/        # script moves renamed files here
     03-actionable/    # you move files here
-    04-reference/     # you move files here
-    05-archive/       # you move files here
+    04-delegated/     # you move files here
+    05-reference/     # you move files here
+    06-archive/       # you move files here
     metadata.csv      # auto-created & kept in sync
 ```
 
@@ -240,7 +241,9 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
 - Correspondents exclude your own accounts and are capped at 3, with a
   `+ N more` line.
 - The own-account label appears in **every** segment; `next_action` appears in
-  triage/actionable/reference but **not** the archive.
+  triage/actionable/delegated/reference but **not** the archive.
+- `04-delegated` is treated exactly like `03-actionable` (same report
+  behaviour); it's just a separate filing destination.
 
 ### Preview (`preview.py`)
 - Output is markdown-friendly: an H1 title, a blank line, a ```` ``` ```` fenced

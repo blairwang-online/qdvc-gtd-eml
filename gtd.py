@@ -6,8 +6,9 @@ Folder structure (relative to working_directory, set in config.yml):
     01-input       <- you manually drop new .eml files here
     02-triage      <- script renames + moves new files here
     03-actionable  <- you move files here
-    04-reference   <- you move files here
-    05-archive     <- you move files here
+    04-delegated   <- you move files here
+    05-reference   <- you move files here
+    06-archive     <- you move files here
 
 Run the script to:
     1. Ingest & rename new files from 01-input into 02-triage.
