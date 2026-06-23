@@ -1,6 +1,6 @@
 # qdvc-gtd-eml
 
-A tiny command-line toolkit for running a [Getting Things Done](https://gettingthingsdone.com/)
+A **quick-and-dirty vibe-coded ("QDVC")** command-line toolkit for running a [Getting Things Done](https://gettingthingsdone.com/)
 workflow over plain `.eml` email files. Export emails you want to act on, drop
 them in a folder, and let the tool file and track them.
 
@@ -66,3 +66,9 @@ Every key is optional and has a sensible default.
 
 See [MAINTENANCE.md](MAINTENANCE.md) for the module layout, dependency graph, and
 the conventions to preserve when editing.
+
+## Acknowledgements
+
+This codebase was vibe-coded with assistance from Claude Opus 4.8 High. The full
+conversation behind it is preserved in
+[vibe-coding/2026-06-23-conversation-with-claude.md](vibe-coding/2026-06-23-conversation-with-claude.md).
