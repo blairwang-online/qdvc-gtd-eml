@@ -83,6 +83,9 @@ gtd_modules/
     metadata.py           # metadata.csv load/sync + per-field get/set
     report.py             # colour-coded status report
     preview.py            # markdown-friendly single-message render
+misc/
+    _gtd                  # zsh (oh-my-zsh) Tab-completion for the `gtd` command
+    shell_completion.md   # setup guide for the above
 ```
 
 ---
@@ -285,6 +288,27 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
   `glow` and reads fine in `less`.
 - `gtd.py` swallows `BrokenPipeError` so quitting `less` early (or piping to
   `head`) doesn't dump a traceback — this covers `view` output too.
+
+### Shell completion (`misc/_gtd`)
+The zsh completion script duplicates parts of the CLI surface, so it can drift
+out of sync with the Python code. When you make a **user-facing CLI change**,
+update `misc/_gtd` (and `misc/shell_completion.md` if the setup story changes)
+to match:
+- **Add/rename/remove a subcommand** → update the `subcommands` array in
+  `_gtd` (name + description) and the examples in `shell_completion.md`.
+- **Change a subcommand's argument shape** (e.g. a new positional, or new
+  `get`/`set`-style verbs) → update that command's branch in the `_gtd` `case`
+  statement so the right thing completes at each position.
+- **Add/remove an editable metadata field** → update the `fields` array.
+- **Add/rename a folder or its alias** → update the `destinations` array (these
+  mirror `config.FOLDERS_BY_ALIAS`).
+- **Change how `working_directory` is found** (config filename, or how `gtd.py`
+  is located) → revisit `_gtd_working_directory`, which parses the `gtd`
+  function/alias and reads `config.yml` to discover `.eml` files.
+
+The completion is best-effort UX, not load-bearing: if it lags the code, the CLI
+still works, you just lose a Tab suggestion. Still, keeping them in step is
+cheap and worth doing in the same change.
 
 ---
 

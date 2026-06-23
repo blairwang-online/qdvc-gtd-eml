@@ -61,6 +61,13 @@ FORCE_COLOR=1 python gtd.py list | less -R
 python gtd.py view <file.eml> | glow -
 ```
 
+## Shell completion
+
+If you use **zsh with [oh-my-zsh](https://ohmyz.sh/)**, there's a Tab-completion
+script for the `gtd` command (subcommands, `.eml` filenames, metadata fields,
+and `alloc` destinations). See
+[`misc/shell_completion.md`](misc/shell_completion.md) for setup.
+
 ## Configuration
 
 Settings live in `config.yml` next to the scripts:

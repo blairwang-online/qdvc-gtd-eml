@@ -1190,3 +1190,29 @@ On the folder name: `misc/` works, but since this holds shell-integration/toolin
 On the folder name: I kept it in `misc/` as you have it, but my suggestion would be `shell/` — it names what's actually inside (shell integration) and leaves room for a bash completion later. If you rename it, the only edit needed in the doc is the `cp misc/_gtd …` line in Step 2. Up to you.
 
 Attached: misc/shell_completion.md _(as of this commit)_
+
+## 61. User request
+
+OK, that's great! I've saved that to `misc/shell_completion.md`
+
+Please also update:
+
+* README.md - just a brief note pointing the reader to check out misc/shell_completion.md if they're also using zsh with omz
+* MAINTENANCE.md - noting that, if there are major updates to the main Python codebase, the required modifications to the `_gtd` file and accompanying `shell_completion.md` doc.
+
+## 62. LLM response
+
+I'll add a brief pointer to README and a maintenance note to MAINTENANCE. Let me check the README structure for the right spot.I'll add a short "Shell completion" note right after Usage, before Configuration.Now MAINTENANCE. The natural spot is the "key behaviours / conventions to preserve" area, and I should reference the file path in the layout. Let me check the section structure.I'll add a dedicated subsection under §7 (conventions to preserve) about keeping the completion script in sync, and add the file to the §3 code-layout listing. First, the layout listing.Now add the convention subsection. Let me view the end of §7 to place it after the Preview subsection.Both updates are in. Let me verify they read cleanly.Both updates are in and read cleanly.Done.
+
+**README.md** — Added a brief "Shell completion" section after Usage, pointing zsh + oh-my-zsh users to `misc/shell_completion.md`.
+
+**MAINTENANCE.md** — Two additions:
+- Listed `misc/_gtd` and `misc/shell_completion.md` in the §3 code-layout tree.
+- Added a "Shell completion" subsection under §7 (conventions to preserve) spelling out exactly which part of `_gtd` to touch for each kind of CLI change — new subcommand → `subcommands` array, changed argument shape → the `case` branch, metadata field → `fields` array, folder/alias → `destinations` array (noting it mirrors `config.FOLDERS_BY_ALIAS`), and config-discovery changes → `_gtd_working_directory`. It also flags that completion is best-effort UX rather than load-bearing, so drift degrades a Tab suggestion but never breaks the CLI.
+
+I used the `misc/shell_completion.md` filename you settled on (lowercase) in both docs.
+
+Attached:
+
+- README.md _(as of this commit)_
+- MAINTENANCE.md _(as of this commit)_
