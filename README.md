@@ -31,11 +31,22 @@ keeps in sync.
 python gtd.py list                       # ingest new files + print the report
 python gtd.py view <file.eml>            # preview one email (headers + body)
 python gtd.py alloc <file.eml> <dest>    # move an email to another folder
+python gtd.py metadata <file.eml> ...    # get/set a metadata.csv field
 python gtd.py help                       # full command overview
 ```
 
 `alloc`'s destination is a short name (`actionable`, `delegated`, `reference`,
 `archive`, `triage`, `input`) or the full folder name (e.g. `04-delegated`).
+
+`metadata` reads or writes one field for an email:
+
+```bash
+python gtd.py metadata <file.eml> get next_action
+python gtd.py metadata <file.eml> set next_action = "Reply by Friday"
+```
+
+Editable fields: `general_notes`, `project`, `next_action`, `flags`
+(`message_ref` is read-only).
 
 Page through a long report with colours and scrolling:
 

@@ -37,6 +37,7 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 | `python gtd.py list` | Run the full workflow: ingest → sync metadata → print report. |
 | `python gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
+| `python gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
 | `python gtd.py help` | Print the command overview. |
 
 `gtd.py` is deliberately thin (~75 lines): it maps subcommand names to handlers
@@ -74,12 +75,12 @@ config.yml                # user settings (see §5)
 gtd_modules/
     __init__.py           # package docstring only
     config.py             # settings, constants, colours, folder aliases, account normalisation
-    commands.py           # subcommand handlers: list, view, alloc, help
+    commands.py           # subcommand handlers: list, view, alloc, metadata, help
     emailutil.py          # SHARED email parsing (headers, body, base64/QP, refs)
     fs.py                 # folder creation, listing, locating + moving files
     naming.py             # filename-convention generation
     ingest.py             # rename + move 01-input → 02-triage
-    metadata.py           # metadata.csv load/sync
+    metadata.py           # metadata.csv load/sync + per-field get/set
     report.py             # colour-coded status report
     preview.py            # markdown-friendly single-message render
 ```
@@ -195,6 +196,14 @@ relocates it. No-ops (already in the destination) and collisions are reported
 without touching `metadata.csv` — metadata keys off the filename, which `alloc`
 never changes, so no resync is needed.
 
+**`metadata`** (`commands.cmd_metadata`) — `fs.find_eml()` resolves the
+canonical filename (extension optional), then `metadata.get_metadata_value()` /
+`metadata.set_metadata_value()` read or write one field. A `set` first calls
+`sync_metadata()` (reconciling the CSV with on-disk files) and then applies the
+single edit, preserving all other fields. Editable fields are
+`metadata.EDITABLE_FIELDS`; `message_ref` is readable but not editable (it must
+stay in step with the filename suffix).
+
 **`help`** (`commands.cmd_help`) — prints `commands.HELP_TEXT`.
 
 ### Colour output and paging
@@ -304,6 +313,8 @@ mkdir -p data/01-input          # point working_directory at ./data in config.ym
 python gtd.py list              # should ingest, write metadata.csv, print report
 python gtd.py view <the-new-filename>
 python gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
+python gtd.py metadata <the-new-filename> set next_action = "Reply soon"
+python gtd.py metadata <the-new-filename> get next_action   # -> Reply soon
 ```
 
 Useful checks when touching the relevant area:
@@ -316,6 +327,9 @@ Useful checks when touching the relevant area:
   `NO_COLOR=1 python gtd.py list | cat -v` emits zero escape sequences.
 - **alloc**: moving to a folder the file is already in should no-op; an
   unknown destination should exit 2; a missing file should exit 1.
+- **metadata**: `set` then `get` should round-trip; setting a read-only field
+  (`message_ref`) or unknown field should exit 2; other fields must be
+  preserved across an edit.
 - **Metadata migration**: hand-write an older CSV missing a column and confirm
   it gains the column with existing values intact.
 

@@ -855,3 +855,50 @@ Attached:
 - config.py
 - README.md
 - MAINTENANCE.md
+
+## 45. User request
+
+Add a new functionality, `gtd.py metadata` which interfaces with metadata.csv
+
+For example `gtd.py metadata XYZ.eml set next_action = "Do something"`
+
+Or `gtd.py metadata XYZ.eml get next_action` (prints "Do something", i.e., retrieves from metadata)
+
+## 46. LLM response
+
+Let me look at the metadata module and how commands access config, so the new handler fits the existing patterns.I'll add a `set_metadata_value` helper to `metadata.py` that performs a full resync (preserving everything) while applying one field update — this guarantees the CSV stays in sync with on-disk files even when editing. Let me add it.Now the command handler. The syntax is `gtd.py metadata XYZ.eml set FIELD = "value"` and `gtd.py metadata XYZ.eml get FIELD`. I need to parse flexibly since the shell may pass `set`, `next_action`, `=`, `Do something` as separate argv tokens (the `=` may or may not be a separate token, and quotes are stripped by the shell). Let me handle: argv after filename is `get FIELD` or `set FIELD [=] VALUE...`. I'll join remaining value tokens with spaces and strip a leading `=`.Now add `cmd_metadata`. I'll place it after `cmd_alloc` and before `HELP_TEXT`. Let me view the alloc/help boundary.A subtlety: `gtd.py metadata XYZ.eml get next_action` — but `find_eml` resolves a filename that may lack `.eml`, yet metadata is keyed by the exact stored filename (with `.eml`). I'll resolve the canonical filename via `find_eml` first, then use its basename as the metadata key. That makes the extension optional and ensures the key matches.Now add the `metadata` entry to HELP_TEXT and register it in the dispatcher.Also update gtd.py's module docstring command list for completeness.Now test thoroughly: set/get round-trip, the `=` optional, multi-word and quoted values, no-ext, flags set, read-only field rejection, unknown field, missing file, and that other metadata is preserved.All working: set/get round-trips, optional `=`, quoted multi-word values, no-extension lookup, and multiple fields coexist in the CSV without clobbering each other. Now the error cases.Every case behaves correctly:
+- `message_ref` is readable (rc 0) but not settable (rc 2, with a helpful field list).
+- Unknown field on get/set → rc 2.
+- Missing file → rc 1; bad action → rc 2; too few args → rc 2 with usage.
+- `set next_action` with no value clears it.
+
+Let me confirm the integration with the actual report — set a `next_action` and `flags pinned`, then `list` should show both.The metadata edits flow straight through to the report — PINNED and the next-action both appear. Everything works end to end.
+
+Let me update the docs. README usage and MAINTENANCE need the new command.Now MAINTENANCE: the entry-points table, command-flow section, and testing checks. Let me update the table.Update the commands.py description in the code-layout tree and the metadata.py description, plus the testing checks.Let me re-verify help output and do a final sanity import check.Everything verified.Done. Added `gtd.py metadata` for reading and writing `metadata.csv` fields.
+
+**Usage:**
+```bash
+python gtd.py metadata XYZ.eml get next_action
+python gtd.py metadata XYZ.eml set next_action = "Do something"
+```
+
+**Behaviour:**
+- **get** prints the stored value (empty line if unset).
+- **set** writes the value and confirms. The `=` is optional (`set project Pudding` works), and multi-word values work with or without quotes since the remaining shell words are rejoined.
+- Editable fields: `general_notes`, `project`, `next_action`, `flags`. `message_ref` is readable but not settable — it's derived from the filename at ingestion, so letting it drift would desync it.
+- The `.eml` extension is optional (resolved via the same lookup as `view`/`alloc`).
+- Exit codes: 1 = file not found, 2 = usage/unknown-field/read-only-field error, with helpful field lists on stderr.
+
+**Implementation:** two helpers in `metadata.py` (`get_metadata_value`, `set_metadata_value`) plus `cmd_metadata` in `commands.py`, registered in the dispatcher. A `set` runs a full `sync_metadata()` first, so the CSV is reconciled with on-disk files before the edit — and every other field is preserved (verified). Edits surface immediately in `gtd.py list`, which I confirmed end to end (setting `next_action` and `flags pinned` both showed up in the report).
+
+Docs (README, MAINTENANCE, in-app `help`) all updated.
+
+One design point worth flagging: I made `flags` editable through this command, so `gtd.py metadata XYZ.eml set flags pinned` is a quick way to pin without hand-editing the CSV. But `set` replaces the whole cell — there's no append, so `set flags pinned` on a file that already had `flags = urgent` would overwrite it to just `pinned`. If you'd like an add/remove-flag operation (e.g. `metadata XYZ.eml flag pinned` / `unflag pinned`) that preserves other flags, I can add that as a separate small command.
+
+Attached:
+
+- commands.py
+- metadata.py
+- gtd.py
+- README.md
+- MAINTENANCE.md

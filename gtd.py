@@ -14,6 +14,7 @@ Commands (run `gtd.py help` for details):
     gtd.py list                       ingest new input + print the status report
     gtd.py view <file.eml>            preview a single email
     gtd.py alloc <file.eml> <dest>    move an email to another folder
+    gtd.py metadata <file.eml> ...    get/set a metadata.csv field
     gtd.py help                       show the command overview
 
 Implementation lives in the gtd_modules package; this file just dispatches.
@@ -30,6 +31,7 @@ COMMANDS = {
     "list": commands.cmd_list,
     "view": commands.cmd_view,
     "alloc": commands.cmd_alloc,
+    "metadata": commands.cmd_metadata,
     "help": commands.cmd_help,
 }
 
