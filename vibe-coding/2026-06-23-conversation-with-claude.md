@@ -589,3 +589,11 @@ Attached:
 
 - config.py _(as of this commit)_
 - gtd.py _(as of this commit)_
+
+## 33. User request
+
+Now write a README.md. It's a bit different to MAINTENANCE.md in that it should be much more succinct. Its audience is anyone visiting the page on GitHub, not a worker maintaining the codebase.
+
+## 34. LLM response
+
+Done. The README is short and visitor-facing: a one-line pitch, a brief "how it works" with the folder-flow diagram, the two commands, the colour-paging tip, a minimal `config.yml` example, requirements, and a pointer to MAINTENANCE.md for anyone who wants the deeper detail. It deliberately leaves out the internals (module graph, edge-case rules, testing recipes) that belong in the maintainer doc.
