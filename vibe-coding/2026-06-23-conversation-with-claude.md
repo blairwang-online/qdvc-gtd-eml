@@ -360,3 +360,66 @@ I aligned the `+ N more` line under the names (after the `With: ` prefix width) 
 Exactly 3 or fewer are all shown with no extra line. The cap is hardcoded at 3 as you specified; if you'd ever want it configurable via `gtd.py.ini`, that's an easy addition.
 
 Attached: gtd.py _(as of this commit)_
+
+## 23. User request
+
+Change the configuration file from `gtd.py.ini` to `config.yml`  
+
+Instead of `exclude_correspondents`, we should have a section for each of "my own accounts", e.g.
+
+
+```
+my_own_accounts:
+- email_address: james.smith@example.com
+  display_name: "Work account"
+  colour: yellow
+- email_address: james.smith@example.gmail.com
+  display_name: "Personal account"
+  colour: blue
+```
+
+
+In the `gtd.py` output, display which account it is (using `display_name`) immediately before the next-action tree-indicator. Use the colour indicated in config.yml above.
+
+## 24. LLM response
+
+This is a substantial change. Let me clarify the intent and check for a YAML library before building.
+
+A few things I'm inferring; tell me if any are wrong:
+- The email is "to" one of my own accounts — so for each EML, you want to show *which* of your accounts was the recipient (matched against From/To/Cc), displayed by `display_name` in its configured colour.
+- My own accounts are still excluded from the "With:" correspondent list (replacing `exclude_correspondents`).
+- The account-identifier line sits right before the `└─ next:` line, so it only appears where next-action appears (triage/actionable/reference, not archive).
+
+Let me check YAML availability and the relevant config code.PyYAML is available. Since you might run this on a machine without it, I'll add a clear error if it's missing. Let me view the current config block, colour map, and the relevant render/report functions.Now I'll rewrite the config block for YAML. I'll add blue to the colour map, replace `exclude_correspondents` with `my_own_accounts`, and rewrite `load_config`.Now I need to: (1) match an email's own-account, (2) exclude own accounts from correspondents, (3) render the account display_name line. Let me add a matcher helper and update `get_email_correspondents` to take account emails as exclusions. First view the correspondents function.`get_email_correspondents` already accepts `exclude` (a list of addresses), so I'll pass the account emails into it. Now add a matcher to identify which own-account appears in the email. I'll add it right after `get_email_correspondents`.Now the rendering. The account line should be coloured (its own colour) and appear right before the next-action line — which means it should be outside the body's age-colouring, like the next-action line. Let me view `file_report_line` and `report_folder`.I'll have `file_report_line` accept `accounts` and `colour_enabled`, build a coloured account line, and return it as a third element. Account line appears immediately before next-action. Since both are appended after the colour-reset of the body, I'll return them as a combined "trailing lines" list to keep `report_folder` simple. Let me restructure to return `(body, trailing_lines, date_dt, elapsed)`.Now update `report_folder` to consume the new return shape and pass `accounts`/`colour_enabled`. Let me view it.Note: the account line should appear even in the archive (it's tied to the email, not the next-action). But you said "immediately before the next-action tree-indicator". For archive there's no next-action. I'll show the account line in all segments (it's useful context), placing it before next-action where that exists. Let me update `report_folder` signature to accept `accounts`.Now `print_report` needs to pass `accounts` and drop `exclude`. Let me view and update it plus `main`.Now also update the module docstring header that still mentions the INI. Let me check and test.Everything works:
+
+- **YAML config** loads, `working_directory` and `max_subject_chars` honoured.
+- **Account matching + colour**: the Pudding email shows `[Work account]` in yellow (`^[[33m`), the weekend email shows `[Personal account]` in blue (`^[[34m`), each wrapped in its own colour codes independent of the entry's age colour.
+- **Ordering**: `[Work account]` appears immediately before the `└─ next:` line.
+- **Own accounts excluded** from the `With:` list (James's addresses don't appear as correspondents), while the `+ N more` cap still works.
+- **No-account email** (Newsletter) correctly shows no account line.
+
+Let me confirm the archive shows the account label too (no next-action there), and that a missing PyYAML is handled. Also update the module docstring.Archive shows `[Personal account]` in blue (no next-action line, as expected), and a missing PyYAML produces a clear, actionable error. Let me update the stale docstring reference to the INI.Let me run the full normal invocation once more end-to-end to confirm nothing regressed (non-TTY, so colours off).Full pipeline works: ref detection, account labelling, and own-account exclusion all coexist. In plain (non-TTY) mode the colour codes are correctly suppressed.Done.
+
+**Config moved to `config.yml`** — `load_config()` now reads YAML (via PyYAML) from `config.yml` next to the script, falling back to `DEFAULTS`. If `config.yml` exists but PyYAML isn't installed, you get a clear error telling you to `pip install pyyaml`.
+
+**`my_own_accounts`** — Replaces `exclude_correspondents`. Each entry has `email_address`, `display_name`, and `colour`. `normalise_accounts()` lower-cases the address, defaults a missing display name to the address, and falls back to `cyan` for an unrecognised colour. Available colours: green, yellow, red, blue, magenta, cyan. Your accounts are still excluded from the `With:` correspondent list.
+
+**Account label in output** — `match_own_account()` finds which of your accounts appears in the email (preferring To/Cc/Bcc over From). Its `display_name` is shown in its configured colour on its own line, immediately before the `└─ next:` indicator:
+
+```
+2026-06-03  (20d)   Project Pudding update
+                    2026-06-03-project-pudding-update.eml
+                    With: Jane Doe <jane@external.com>
+                    [Work account]          ← yellow
+                    └─ next: Reply to Jane
+```
+
+The label appears in every segment including the archive (it's a property of the email, not the next-action). Emails with no matching account simply omit the line.
+
+Two notes worth flagging:
+
+Your example used `colour: blue`, which I added along with magenta and cyan. The account label colour is independent of the green/yellow/red age colouring, so a yellow `[Work account]` next to a red (old) entry is expected, not a bug.
+
+If an email involves two of your accounts (e.g. one in To, one in Cc), only the first match is shown, preferring the receiving headers. If you'd rather see all matched accounts, that's a small change.
+
+Attached: gtd.py _(as of this commit)_

@@ -2,7 +2,7 @@
 """
 GTD (Getting Things Done) workflow based on EML email files.
 
-Folder structure (relative to BASE_DIR):
+Folder structure (relative to working_directory, set in config.yml):
     01-input       <- you manually drop new .eml files here
     02-triage      <- script renames + moves new files here
     03-actionable  <- you move files here
@@ -15,7 +15,6 @@ Run the script to:
     3. Ensure metadata.csv exists & is in sync with current .eml files.
 """
 
-import configparser
 import csv
 import os
 import re
@@ -24,13 +23,20 @@ from datetime import datetime, timezone
 from email import message_from_binary_file
 from email.utils import parsedate_to_datetime
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
-# The INI file lives alongside this script and is named "<script>.ini".
-INI_FILE = os.path.abspath(__file__) + ".ini"  # e.g. /path/gtd.py.ini
+# Settings live in config.yml alongside this script.
+CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "config.yml"
+)
 
-# Defaults — overridden by [settings] in gtd.py.ini if present there.
+# Defaults — overridden by matching keys in config.yml if present.
 DEFAULTS = {
     "working_directory": os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "gtd-eml"
@@ -39,8 +45,8 @@ DEFAULTS = {
     "archive_report_n": 10,    # number of most recent archive files to report
     "green_max_days": 2,       # days < this -> green
     "yellow_max_days": 14,     # days < this (and >= green) -> yellow; else red
-    "exclude_correspondents": [],  # email addresses to omit from listings
     "max_subject_chars": 72,   # truncate displayed subjects longer than this
+    "my_own_accounts": [],     # list of {email_address, display_name, colour}
 }
 
 # ANSI colour codes used for report lines.
@@ -48,6 +54,9 @@ COLOURS = {
     "green": "\033[32m",
     "yellow": "\033[33m",
     "red": "\033[31m",
+    "blue": "\033[34m",
+    "magenta": "\033[35m",
+    "cyan": "\033[36m",
     "reset": "\033[0m",
 }
 
@@ -65,40 +74,60 @@ METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "
 # --------------------------------------------------------------------------- #
 # Config loading
 # --------------------------------------------------------------------------- #
-def load_config(ini_path=INI_FILE):
+def load_config(config_path=CONFIG_FILE):
     """
-    Load settings from a [settings] section in the INI file, falling back to
-    DEFAULTS for any key not present. Integer keys are coerced to int; list
-    keys (e.g. exclude_correspondents) are split on commas/newlines and
-    lower-cased.
+    Load settings from config.yml, falling back to DEFAULTS for any key not
+    present. my_own_accounts is normalised to a list of dicts with lower-cased
+    email_address plus display_name and colour.
 
-    Example (gtd.py.ini sets exclude_correspondents = me@x.com, boss@x.com):
-        load_config("/path/gtd.py.ini")["exclude_correspondents"]
-        # -> ["me@x.com", "boss@x.com"]
+    Example (config.yml has my_own_accounts with one entry):
+        load_config("/path/config.yml")["my_own_accounts"]
+        # -> [{"email_address": "james@x.com",
+        #      "display_name": "Work account", "colour": "yellow"}]
     """
     cfg = dict(DEFAULTS)
-    parser = configparser.ConfigParser()
-    if os.path.isfile(ini_path):
-        parser.read(ini_path, encoding="utf-8")
-        if parser.has_section("settings"):
-            section = parser["settings"]
-            for key in cfg:
-                if key in section:
-                    raw = section[key].strip().strip('"').strip("'")
-                    if isinstance(DEFAULTS[key], bool):
-                        cfg[key] = raw.lower() in ("1", "true", "yes", "on")
-                    elif isinstance(DEFAULTS[key], int):
-                        cfg[key] = int(raw)
-                    elif isinstance(DEFAULTS[key], list):
-                        parts = re.split(r"[,\n]", section[key])
-                        cfg[key] = [
-                            p.strip().strip('"').strip("'").lower()
-                            for p in parts
-                            if p.strip().strip('"').strip("'")
-                        ]
-                    else:
-                        cfg[key] = raw
+    if os.path.isfile(config_path):
+        if yaml is None:
+            raise RuntimeError(
+                "config.yml found but PyYAML is not installed. "
+                "Install it with: pip install pyyaml"
+            )
+        with open(config_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        for key in cfg:
+            if key in data and data[key] is not None:
+                cfg[key] = data[key]
+
+    cfg["my_own_accounts"] = normalise_accounts(cfg.get("my_own_accounts"))
     return cfg
+
+
+def normalise_accounts(accounts):
+    """
+    Normalise the my_own_accounts list: lower-case email addresses, supply a
+    fallback display_name, and validate the colour against COLOURS.
+
+    Example:
+        normalise_accounts([{"email_address": "ME@X.com"}])
+        # -> [{"email_address": "me@x.com", "display_name": "me@x.com",
+        #      "colour": "cyan"}]
+    """
+    result = []
+    for entry in accounts or []:
+        if not isinstance(entry, dict):
+            continue
+        email = (entry.get("email_address") or "").strip().lower()
+        if not email:
+            continue
+        colour = (entry.get("colour") or "cyan").strip().lower()
+        if colour not in COLOURS:
+            colour = "cyan"
+        result.append({
+            "email_address": email,
+            "display_name": (entry.get("display_name") or email).strip(),
+            "colour": colour,
+        })
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -236,6 +265,29 @@ def get_email_correspondents(message, exclude=None):
         if entry and entry not in people:
             people.append(entry)
     return people
+
+
+def match_own_account(message, accounts):
+    """
+    Return the first configured own-account (dict) whose email_address appears
+    in the To, Cc, From, or Bcc headers, or None. Header order of preference:
+    To, Cc, Bcc, From (i.e. prefer the account that received the mail).
+
+    Example:
+        match_own_account(msg, [{"email_address": "me@x.com",
+                                  "display_name": "Work", "colour": "yellow"}])
+        # To: "me@x.com" -> {"email_address": "me@x.com", ...}
+    """
+    from email.utils import getaddresses
+
+    if not accounts:
+        return None
+    by_email = {a["email_address"]: a for a in accounts}
+    for header in ("To", "Cc", "Bcc", "From"):
+        for _, addr in getaddresses(message.get_all(header, [])):
+            if addr and addr.lower() in by_email:
+                return by_email[addr.lower()]
+    return None
 
 
 def get_email_body_text(message):
@@ -466,31 +518,31 @@ def truncate(text, max_chars):
 
 
 def file_report_line(base_dir, folder, filename, exclude=None,
-                     max_subject=0, next_action=None, today=None):
+                     max_subject=0, next_action=None, accounts=None,
+                     colour_enabled=True, today=None):
     """
     Build the report content for one file. Correspondents are prefixed with
-    "With: ". The next_action (if any) is returned SEPARATELY so the caller can
-    render it uncolourized for visual contrast.
+    "With: ". Trailing lines (the matched own-account, then the next_action) are
+    returned SEPARATELY from the age-coloured body so they render distinctly:
+    the account uses its own configured colour; the next_action is uncoloured.
 
-    Returns (body_block, next_action_line_or_None, date_dt, elapsed), where:
-        body_block:
-            <date> (<elapsed>d)   <subject (truncated)>
-                                  <filename>
-                                  With: <correspondent1>
-                                  With: <correspondent2>
-        next_action_line:
-            "                    └─ next: <next_action>"  (or None)
+    Returns (body_block, trailing_lines, date_dt, elapsed), where trailing_lines
+    is a list of already-formatted strings (possibly empty), e.g.:
+        ["                    [Work account]",
+         "                    └─ next: Reply to Jane"]
 
     Example:
-        file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml",
-                         next_action="Reply to Jane")
-        # -> ("2026-06-03  (20d)   Meeting Minutes\\n"
-        #     "                    2026-06-03-x.eml\\n"
-        #     "                    With: Jane <jane@x.com>",
-        #     "                    └─ next: Reply to Jane", date_dt, 20)
+        file_report_line("/home/me/gtd", "02-triage", "x.eml",
+                         next_action="Reply", accounts=accts)
+        # -> ("2026-06-03  (20d)   Subject\\n...With: Jane <jane@x.com>",
+        #     ["                    [Work account]",
+        #      "                    └─ next: Reply"], date_dt, 20)
     """
     if today is None:
         today = datetime.now(timezone.utc)
+
+    account_emails = [a["email_address"] for a in (accounts or [])]
+    exclude = list(exclude or []) + account_emails
 
     path = os.path.join(base_dir, folder, filename)
     message = read_eml_message(path)
@@ -498,6 +550,7 @@ def file_report_line(base_dir, folder, filename, exclude=None,
     subject = get_email_subject(message) or "(no subject)"
     subject = truncate(subject, max_subject)
     correspondents = get_email_correspondents(message, exclude=exclude)
+    own_account = match_own_account(message, accounts)
 
     date_str = date_dt.strftime("%Y-%m-%d")
     elapsed = (today.date() - date_dt.date()).days
@@ -514,27 +567,33 @@ def file_report_line(base_dir, folder, filename, exclude=None,
     else:
         rows.append(f"{indent}With: (no correspondents)")
 
-    next_action_line = None
+    trailing = []
+    if own_account:
+        label = colourize(f"[{own_account['display_name']}]",
+                          own_account["colour"], colour_enabled)
+        trailing.append(f"{indent}{label}")
     if next_action and next_action.strip():
-        next_action_line = f"{indent}\u2514\u2500 next: {next_action.strip()}"
+        trailing.append(f"{indent}\u2514\u2500 next: {next_action.strip()}")
 
-    return "\n".join(rows), next_action_line, date_dt, elapsed
+    return "\n".join(rows), trailing, date_dt, elapsed
 
 
 def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
-                  max_subject=0, metadata=None, show_next_action=False):
+                  max_subject=0, metadata=None, show_next_action=False,
+                  accounts=None):
     """
     Print a report block for a folder, colour-coding each entry by elapsed days.
     If limit is set, show only the most recent `limit` files (by email date).
     `colour_cfg` is (green_max, yellow_max, enabled); `exclude` is a list of
     correspondent addresses to omit; `max_subject` truncates subjects;
     `metadata` is the dict from load_metadata; `show_next_action` toggles the
-    next_action branch line (off for the archive).
+    next_action branch line (off for the archive); `accounts` is the
+    my_own_accounts list used to label which account received each email.
 
     Example:
         report_folder("/home/me/gtd", "03-actionable", (2, 14, True),
-                      metadata=meta, show_next_action=True)
-        # -> prints colour-coded actionable entries with next-action lines
+                      metadata=meta, show_next_action=True, accounts=accts)
+        # -> prints colour-coded actionable entries with account + next-action
     """
     green_max, yellow_max, enabled = colour_cfg
     metadata = metadata or {}
@@ -543,11 +602,12 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     for name in files:
         try:
             na = metadata.get(name, {}).get("next_action", "") if show_next_action else None
-            body, na_line, date_dt, elapsed = file_report_line(
+            body, trailing, date_dt, elapsed = file_report_line(
                 base_dir, folder, name, exclude=exclude,
-                max_subject=max_subject, next_action=na)
+                max_subject=max_subject, next_action=na,
+                accounts=accounts, colour_enabled=enabled)
             body = colourize(body, colour_for_days(elapsed, green_max, yellow_max), enabled)
-            block = body if na_line is None else f"{body}\n{na_line}"
+            block = "\n".join([body] + trailing)
             lines.append((date_dt, block))
         except Exception as e:
             lines.append((datetime.min.replace(tzinfo=timezone.utc),
@@ -564,18 +624,19 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
         print(block)
 
 
-def print_report(base_dir, archive_n, colour_cfg, exclude=None,
+def print_report(base_dir, archive_n, colour_cfg, accounts=None,
                  max_subject=0, metadata=None):
     """
     Print the full GTD status report across the relevant folders. next_action
     lines are shown for triage/actionable/reference but NOT for the archive.
+    The matched own-account label is shown in every segment.
 
     Example:
-        print_report("/home/me/gtd", 10, (2, 14, True), exclude=["me@x.com"],
+        print_report("/home/me/gtd", 10, (2, 14, True), accounts=accts,
                      max_subject=72, metadata=meta)
         # -> prints triage, actionable, reference, last-10 archive blocks
     """
-    common = dict(exclude=exclude, max_subject=max_subject, metadata=metadata)
+    common = dict(accounts=accounts, max_subject=max_subject, metadata=metadata)
     report_folder(base_dir, TRIAGE_DIR, colour_cfg, show_next_action=True, **common)
     report_folder(base_dir, ACTIONABLE_DIR, colour_cfg, show_next_action=True, **common)
     report_folder(base_dir, REFERENCE_DIR, colour_cfg, show_next_action=True, **common)
@@ -674,7 +735,7 @@ def main():
     sync_metadata(base_dir, new_values=new_refs)
     metadata = load_metadata(base_dir)
     print_report(base_dir, cfg["archive_report_n"], colour_cfg,
-                 exclude=cfg["exclude_correspondents"],
+                 accounts=cfg["my_own_accounts"],
                  max_subject=cfg["max_subject_chars"],
                  metadata=metadata)
 
