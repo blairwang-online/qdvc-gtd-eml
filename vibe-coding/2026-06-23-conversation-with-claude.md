@@ -1176,3 +1176,17 @@ If you'd rather keep the alias, the alternative is adding `setopt complete_alias
 The updated header in `_gtd` documents both paths. Re-copy it, switch to the function, clear the dump, `exec zsh`, and it should work.
 
 Attached: misc/_gtd _(as of this commit)_
+
+## 59. User request
+
+OK, great, that's working now. I've now parked `_gtd` in a folder called `misc/` (unless you can think of a better name?)
+
+Please write a markdown document to place into `misc/` (unless you can think of a better name?) which advises the user on how to set this up, assuming zsh with oh-my-zsh. It should cover some of the main steps you mentioned above (`mkdir -p` the required folder, `cp` the file into that folder, editing `~/.zshrc` as needed)
+
+## 60. LLM response
+
+On the folder name: `misc/` works, but since this holds shell-integration/tooling rather than miscellany, something like `shell/`, `completions/`, or `contrib/` would signal intent better. `shell/` is my pick — it scopes cleanly if you later add a bash completion or other shell glue. That said, `misc/` is perfectly fine if you'd rather not rename; I'll write the doc to match `misc/` and you can adjust the one path reference if you move it.Done — `misc/SHELL_COMPLETION.md`. It walks through the four steps in order: make `gtd` a function (with the explanation of why the alias breaks completion), `mkdir -p` and `cp` the file into oh-my-zsh's custom completions dir, clear `~/.zcompdump` and restart, then verify with `print ${_comps[gtd]}`. There's also a short "how it finds your emails" note and a troubleshooting section keyed to the exact symptoms you hit (empty `_comps[gtd]`, the alias-expansion fallback, the insecure-directories warning, and the Ctrl-X h diagnostic).
+
+On the folder name: I kept it in `misc/` as you have it, but my suggestion would be `shell/` — it names what's actually inside (shell integration) and leaves room for a bash completion later. If you rename it, the only edit needed in the doc is the `cp misc/_gtd …` line in Step 2. Up to you.
+
+Attached: misc/shell_completion.md _(as of this commit)_
