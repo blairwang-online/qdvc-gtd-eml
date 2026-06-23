@@ -25,7 +25,8 @@ from email.utils import parsedate_to_datetime
 # --------------------------------------------------------------------------- #
 # Configuration constants
 # --------------------------------------------------------------------------- #
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # root containing the 5 folders
+GTD_ROOT_DIR = "gtd-eml"  # folder (relative to this script) holding the 5 folders + metadata.csv
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), GTD_ROOT_DIR)
 MAX_FILENAME_CHARS = 60   # max length of generated filename (incl. ".eml")
 ARCHIVE_REPORT_N = 10     # number of most recent archive files to report
 

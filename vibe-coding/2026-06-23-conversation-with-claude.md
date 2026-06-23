@@ -66,3 +66,20 @@ Run it with `python3 gtd.py` from wherever the 5 folders should live (or place t
 One thing to flag: subjects in the report show the original (with punctuation/casing), while filenames use the slug — that matched your example. If you'd rather the report show the slug-style description instead, that's a one-line change.
 
 Attached: gtd.py _(as of this commit)_
+
+## 3. User request
+
+The 5 folders and metadata.csv should be in a folder relative to the file location, gtd-eml. This should be configurable as a constant too.
+
+## 4. LLM response
+
+`ensure_folders` already does `os.makedirs(..., exist_ok=True)`, so the `gtd-eml` parent gets created automatically. Quick test:All 5 folders and `metadata.csv` now live under `gtd-eml/`, created automatically.Done. New constant at the top:
+
+```python
+GTD_ROOT_DIR = "gtd-eml"  # folder (relative to this script) holding the 5 folders + metadata.csv
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), GTD_ROOT_DIR)
+```
+
+Change `GTD_ROOT_DIR` to relocate the whole structure. The directory is created automatically on first run.
+
+Attached: gtd.py _(as of this commit)_
