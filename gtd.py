@@ -59,7 +59,7 @@ ARCHIVE_DIR = "05-archive"
 
 ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, REFERENCE_DIR, ARCHIVE_DIR]
 METADATA_FILE = "metadata.csv"
-METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action"]
+METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "message_ref"]
 
 
 # --------------------------------------------------------------------------- #
@@ -238,6 +238,72 @@ def get_email_correspondents(message, exclude=None):
     return people
 
 
+def get_email_body_text(message):
+    """
+    Return the email's text body as a single string, decoding base64 /
+    quoted-printable transparently. Prefers text/plain; falls back to the raw
+    text of a text/html part. Returns "" if no text body is found.
+
+    Example:
+        get_email_body_text(msg)  # base64 body "SGk=" -> "Hi"
+    """
+    def decode_part(part):
+        payload = part.get_payload(decode=True)  # handles base64 / QP
+        if payload is None:
+            return ""
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            return payload.decode(charset, errors="replace")
+        except (LookupError, TypeError):
+            return payload.decode("utf-8", errors="replace")
+
+    if not message.is_multipart():
+        return decode_part(message)
+
+    plain, html = None, None
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        disposition = (part.get("Content-Disposition") or "").lower()
+        if "attachment" in disposition:
+            continue
+        ctype = part.get_content_type()
+        if ctype == "text/plain" and plain is None:
+            plain = decode_part(part)
+        elif ctype == "text/html" and html is None:
+            html = decode_part(part)
+
+    if plain and plain.strip():
+        return plain
+    return html or ""
+
+
+# Matches e.g. "Message ref. 8FKnj9Tx8d" — case-insensitive, with flexible
+# spacing/punctuation after "ref". The nanoid uses the default nanoid alphabet
+# (A-Za-z0-9_-). Length 6-32 keeps it from grabbing unrelated long tokens.
+MESSAGE_REF_RE = re.compile(
+    r"message\s+ref\.?\s*[:\-]?\s*([A-Za-z0-9_-]{6,32})",
+    re.IGNORECASE,
+)
+
+
+def find_message_ref(message):
+    """
+    Return the FIRST message-ref nanoid found in the email body, or None.
+    In a thread with several refs (quoted replies), the earliest occurrence in
+    the body text is treated as authoritative.
+
+    Example:
+        find_message_ref(msg)  # body contains "Message ref. 8FKnj9Tx8d"
+        # -> "8FKnj9Tx8d"
+    """
+    body = get_email_body_text(message)
+    if not body:
+        return None
+    match = MESSAGE_REF_RE.search(body)
+    return match.group(1) if match else None
+
+
 # --------------------------------------------------------------------------- #
 # Filename generation
 # --------------------------------------------------------------------------- #
@@ -256,24 +322,38 @@ def slugify(text):
     return text.strip("-")
 
 
-def build_base_filename(date_dt, subject, max_chars):
+def build_base_filename(date_dt, subject, max_chars, message_ref=None):
     """
-    Build a "yyyy-mm-dd-brief-description" base name (no extension),
-    truncated so that base + ".eml" fits within max_chars.
+    Build a "yyyy-mm-dd-brief-description[-ref-<nanoid>]" base name (no
+    extension), truncated so that base + ".eml" fits within max_chars. When a
+    message_ref is given, the "-ref-<nanoid>" suffix is preserved intact and
+    the subject slug is truncated to make room.
 
     Example:
         build_base_filename(datetime(2026,6,12), "Meeting Minutes", 40)
         # -> "2026-06-12-meeting-minutes"
+        build_base_filename(datetime(2026,6,12), "Meeting Minutes", 40, "8FKnj9Tx8d")
+        # -> "2026-06-12-meeting-ref-8FKnj9Tx8d"
     """
     date_str = date_dt.strftime("%Y-%m-%d")
     slug = slugify(subject) or "no-subject"
-    base = f"{date_str}-{slug}"
 
-    ext_len = len(".eml")
-    max_base = max_chars - ext_len
-    if len(base) > max_base:
-        base = base[:max_base].rstrip("-")
-    return base
+    ref_suffix = f"-ref-{message_ref}" if message_ref else ""
+    max_base = max_chars - len(".eml")
+
+    # Reserve space for the date prefix and the (protected) ref suffix; the
+    # subject slug gets whatever remains.
+    available_for_slug = max_base - len(date_str) - len("-") - len(ref_suffix)
+    if available_for_slug < 0:
+        # Pathological: ref alone overflows. Keep date + ref, drop the slug.
+        base = f"{date_str}{ref_suffix}"
+        return base[:max_base].rstrip("-")
+
+    if len(slug) > available_for_slug:
+        slug = slug[:available_for_slug].rstrip("-")
+
+    base = f"{date_str}-{slug}{ref_suffix}" if slug else f"{date_str}{ref_suffix}"
+    return base.strip("-")
 
 
 def unique_filename(base, existing, max_chars):
@@ -307,11 +387,13 @@ def unique_filename(base, existing, max_chars):
 def ingest_input_files(base_dir, max_chars):
     """
     Rename every .eml in 01-input per the naming convention and move it to
-    02-triage. Returns a list of (old_name, new_name) tuples.
+    02-triage. Detects a "Message ref. <nanoid>" in each body and appends
+    "-ref-<nanoid>" to the filename. Returns a list of
+    (old_name, new_name, message_ref) tuples (message_ref is "" if none found).
 
     Example:
         ingest_input_files("/home/me/gtd", 60)
-        # -> [("inbox123.eml", "2026-06-12-meeting-minutes.eml")]
+        # -> [("inbox123.eml", "2026-06-12-meeting-ref-8FKnj9Tx8d.eml", "8FKnj9Tx8d")]
     """
     moved = []
     existing = all_existing_filenames(base_dir)
@@ -323,13 +405,14 @@ def ingest_input_files(base_dir, max_chars):
         message = read_eml_message(old_path)
         date_dt = get_email_date(message)
         subject = get_email_subject(message)
+        message_ref = find_message_ref(message)
 
-        base = build_base_filename(date_dt, subject, max_chars)
+        base = build_base_filename(date_dt, subject, max_chars, message_ref=message_ref)
         new_name = unique_filename(base, existing, max_chars)
         existing.add(new_name)
 
         os.rename(old_path, os.path.join(triage_path, new_name))
-        moved.append((old_name, new_name))
+        moved.append((old_name, new_name, message_ref or ""))
 
     return moved
 
@@ -520,27 +603,36 @@ def load_metadata(base_dir):
     return rows
 
 
-def sync_metadata(base_dir):
+def sync_metadata(base_dir, new_values=None):
     """
     Ensure metadata.csv exists at the root and has one row per current .eml
     file (across all folders). Preserves existing column values (notes,
-    project, next_action); adds blank rows for new files; drops rows for files
-    that no longer exist.
+    project, next_action, message_ref); adds blank rows for new files; drops
+    rows for files that no longer exist.
+
+    `new_values` optionally seeds columns for freshly-ingested files, e.g.
+    {"2026-06-03-x.eml": {"message_ref": "8FKnj9Tx8d"}}. Seeds only apply to
+    files not already present in the CSV (no retroactive overwrite).
 
     Example:
-        sync_metadata("/home/me/gtd")
+        sync_metadata("/home/me/gtd", {"x.eml": {"message_ref": "8FKnj9Tx8d"}})
         # -> writes/updates /home/me/gtd/metadata.csv
     """
     meta_path = os.path.join(base_dir, METADATA_FILE)
     current = all_existing_filenames(base_dir)
     existing_rows = load_metadata(base_dir)
+    new_values = new_values or {}
     blank = {h: "" for h in METADATA_HEADERS if h != "eml_filename"}
 
     with open(meta_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=METADATA_HEADERS)
         writer.writeheader()
         for name in sorted(current):
-            prev = existing_rows.get(name, blank)
+            if name in existing_rows:
+                prev = existing_rows[name]
+            else:
+                prev = dict(blank)
+                prev.update(new_values.get(name, {}))  # seed new files only
             row = {"eml_filename": name}
             row.update({h: prev.get(h, "") for h in METADATA_HEADERS if h != "eml_filename"})
             writer.writerow(row)
@@ -564,14 +656,18 @@ def main():
     ensure_folders(base_dir)
 
     moved = ingest_input_files(base_dir, cfg["max_filename_chars"])
+    new_refs = {}
     if moved:
         print("Ingested from 01-input -> 02-triage:")
-        for old_name, new_name in moved:
-            print(f"   {old_name}  ->  {new_name}")
+        for old_name, new_name, message_ref in moved:
+            tag = f"   (ref {message_ref})" if message_ref else ""
+            print(f"   {old_name}  ->  {new_name}{tag}")
+            if message_ref:
+                new_refs[new_name] = {"message_ref": message_ref}
     else:
         print("No new files in 01-input.")
 
-    sync_metadata(base_dir)
+    sync_metadata(base_dir, new_values=new_refs)
     metadata = load_metadata(base_dir)
     print_report(base_dir, cfg["archive_report_n"], colour_cfg,
                  exclude=cfg["exclude_correspondents"],
