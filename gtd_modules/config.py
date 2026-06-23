@@ -26,6 +26,7 @@ DEFAULTS = {
     "yellow_max_days": 14,     # days < this (and >= green) -> yellow; else red
     "max_subject_chars": 72,   # truncate displayed subjects longer than this
     "my_own_accounts": [],     # list of {email_address, display_name, colour}
+    "force_colour": False,     # always emit colour (e.g. when piping to `less -R`)
 }
 
 # ANSI colour codes used for report lines.
@@ -104,3 +105,33 @@ def normalise_accounts(accounts):
             "colour": colour,
         })
     return result
+
+
+def should_use_colour(cfg, stream):
+    """
+    Decide whether to emit ANSI colour, applying this precedence (highest
+    first):
+        1. NO_COLOR env var set (to anything)        -> never colour
+        2. FORCE_COLOR env var set to a truthy value  -> always colour
+        3. force_colour: true in config.yml           -> always colour
+        4. otherwise                                   -> colour iff stream is a TTY
+
+    NO_COLOR and FORCE_COLOR follow the conventions documented at
+    https://no-color.org and https://force-color.org . A FORCE_COLOR value of
+    "0", "false", "no", or "off" (case-insensitive) is treated as NOT forcing.
+
+    Example:
+        should_use_colour({"force_colour": False}, sys.stdout)  # -> True if a TTY
+        should_use_colour({"force_colour": True}, piped_stream)  # -> True
+    """
+    if "NO_COLOR" in os.environ:
+        return False
+
+    force_env = os.environ.get("FORCE_COLOR")
+    if force_env is not None and force_env.strip().lower() not in ("0", "false", "no", "off", ""):
+        return True
+
+    if cfg.get("force_colour"):
+        return True
+
+    return bool(getattr(stream, "isatty", lambda: False)())

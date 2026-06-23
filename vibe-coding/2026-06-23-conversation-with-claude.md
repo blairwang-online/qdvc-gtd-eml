@@ -507,3 +507,85 @@ The dependency graph reflects the current structure: both entry points lean on `
 One note: the maintenance guide documents the requirement that both scripts run from the directory containing `gtd_modules/`. If you'd like, I mentioned earlier I could add a small `sys.path` bootstrap so they run from anywhere — say the word and I'll add it and update the doc to match.
 
 Attached: maintenance.md _(as of this commit)_
+
+## 29. User request
+
+Is it possible to pipe into less while preserving colours? Or, some other way to paginate output and scroll through using scroll wheel and PgUp/PgDown keys?
+
+## 30. LLM response
+
+Short answer: yes, `less -R` preserves colours, but your tools handle colour differently, so the details matter. Let me address each.
+
+**The catch with your current code:** both tools call `sys.stdout.isatty()` and disable colour when output is piped. So `python gtd.py | less -R` would have no colours to preserve — the script already stripped them because it sees a pipe, not a terminal. The preview tool emits no ANSI colour at all (it's markdown for `glow`), so that one's moot.
+
+**For `gtd.py`, two options:**
+
+The simplest is to keep colour on when piping to a pager. The cleanest way is to add a config/env override so you can force colour, then pipe to `less -R`:
+
+```bash
+python gtd.py | less -R
+```
+
+`-R` tells `less` to pass ANSI colour escapes through raw. (Plain `less` shows them as literal `ESC[33m` garbage.) Other useful flags:
+
+- `less -R -F` — `-F` quits immediately if everything fits on one screen (no pager for short output).
+- `less -R -X` — `-X` leaves the output on screen after you quit instead of clearing it.
+
+Combined: `python gtd.py | less -RFX`.
+
+**Scroll wheel / PgUp / PgDown:** `less` supports all of these out of the box in any modern terminal — mouse wheel scrolls, PgUp/PgDown page, arrows line-scroll, `g`/`G` jump to top/bottom, `/` searches. No extra config needed.
+
+**The colour-detection problem needs a code change though.** Right now `gtd.py` will strip colour the moment it sees a pipe. You have a few ways to fix it:
+
+1. **`unbuffer`** (from the `expect` package) — tricks the script into thinking it's on a TTY: `unbuffer python gtd.py | less -R`. No code change, but requires installing `expect`.
+2. **Add a force-colour override** to the script — e.g. honour a `--colour` flag, a `FORCE_COLOR` env var, or a `force_colour: true` setting in `config.yml`. This is the most robust and respects the common `FORCE_COLOR`/`NO_COLOR` conventions.
+
+I'd recommend option 2. Would you like me to add it? My suggested behaviour:
+
+- Default: auto-detect (colour on for TTY, off for pipe) — unchanged.
+- `FORCE_COLOR=1` env var **or** `force_colour: true` in `config.yml` → always colour.
+- `NO_COLOR=1` (a widely-supported standard) → never colour.
+
+Then `FORCE_COLOR=1 python gtd.py | less -R` gives you a fully scrollable, coloured report. Want me to implement that?
+
+## 31. User request
+
+Yes, implement the changes according to option 2.
+
+## 32. LLM response
+
+I'll add the precedence logic in config (so both tools share it) and wire it into `gtd.py`. Let me check the current colour-enabling code.I'll add `force_colour` to DEFAULTS and a `should_use_colour()` helper in config that implements the precedence: NO_COLOR > FORCE_COLOR env > config force_colour > TTY auto-detect. Let me view the config DEFAULTS and add it.Now add the `should_use_colour()` helper at the end of config.py.Now wire it into `gtd.py`.Now test all precedence combinations. The key real-world test is "piped (non-TTY) but forced → colour present".Here-string isn't POSIX sh. Let me use bash explicitly.All four env-var cases correct. Now the config-based cases.All six precedence cases pass. And the practical end goal works: `FORCE_COLOR=1 python gtd.py | less -R` (or `force_colour: true` in config) now produces a fully coloured, scrollable report.Done. Added a `should_use_colour()` helper in `config.py` (shared, so the logic lives in one place) and wired `gtd.py` to use it. Precedence, highest first:
+
+1. `NO_COLOR` set (to anything) → never colour
+2. `FORCE_COLOR` set to a truthy value → always colour (`0`/`false`/`no`/`off`/empty don't count)
+3. `force_colour: true` in `config.yml` → always colour
+4. otherwise → colour only when stdout is a TTY (unchanged default)
+
+All six combinations tested and correct, including `NO_COLOR` overriding both `FORCE_COLOR` and the config setting.
+
+**To paginate with colours and full scroll support:**
+
+```bash
+FORCE_COLOR=1 python gtd.py | less -R
+```
+
+Or set it once in `config.yml` so you don't need the env var each time:
+
+```yaml
+force_colour: true
+```
+
+then just `python gtd.py | less -R`. Handy `less` flags: `-RFX` (`-F` skips the pager for short output, `-X` leaves it on screen after quitting). Inside `less`, the scroll wheel, PgUp/PgDown, arrows, `g`/`G`, and `/`-search all work without any extra setup.
+
+Two notes:
+
+I followed the `NO_COLOR` / `FORCE_COLOR` conventions (no-color.org, force-color.org), so the tool now also plays nicely with other tooling that sets those — e.g. CI systems that export `NO_COLOR` will get clean output automatically.
+
+The preview tool (`gtd_email_preview.py`) is unaffected — it emits markdown with no ANSI colour, so for *that_one_*pipe to `glow -` or plain `less` as before. If you ever want the preview colourised too, that'd be a separate change.
+
+The `MAINTENANCE.md` references colour behaviour in a couple of places; want me to update it to document the new `force_colour` setting and the env-var precedence?
+
+Attached:
+
+- config.py _(as of this commit)_
+- gtd.py _(as of this commit)_

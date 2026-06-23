@@ -36,7 +36,7 @@ def main():
     """
     cfg = cfg_mod.load_config()
     base_dir = cfg["working_directory"]
-    colour_enabled = sys.stdout.isatty()
+    colour_enabled = cfg_mod.should_use_colour(cfg, sys.stdout)
     colour_cfg = (cfg["green_max_days"], cfg["yellow_max_days"], colour_enabled)
 
     ensure_folders(base_dir)
