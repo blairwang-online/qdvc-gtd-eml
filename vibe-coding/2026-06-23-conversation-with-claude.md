@@ -741,3 +741,59 @@ Attached:
 - gtd.py _(as of this commit)_
 - maintenance.md _(as of this commit)_
 - README.md _(as of this commit)_
+
+## 41. User request
+
+I would like a `gtd` CLI tool that has the following capabilites:
+
+* gtd list: shorthand for `FORCE_COLOR=1 python3 /path/to/gtd.py | less -R`
+* gtd view XYZ.eml: shorthand for `python3 /path/to/gtd_email_preview.py XYZ.eml`
+
+If you can help with setting up the python script or bash script, I can add `gtd` to my ~/.zshrc myself.
+
+## 42. LLM response
+
+A bash wrapper is the natural fit here. The one thing it needs to solve is locating `gtd.py`/`gtd_email_preview.py` regardless of where you call `gtd` from. I'll resolve paths relative to the script's own location, so you can drop it next to the Python files.All the control-flow paths work. Now test the real subcommands. `less` needs a TTY, so to verify `gtd list` end-to-end I'll point `PAGER`-style behaviour around it — simplest is to test that the pipeline produces coloured output by temporarily substituting `cat` for `less`. I'll verify `gtd view` directly (no pager) and verify the `list` pipeline by checking the script up to the pager.The `gtd list` pipeline works perfectly — `FORCE_COLOR=1` keeps colours on through the pipe (you can see `^[[31m` on every line), and they reach the pager. The `view` and unknown-file paths return correct exit codes.
+
+The `view <file>` test failed only because of test ordering: I ran `./gtd.py` to ingest *after* capturing the filename, so `data/02-triage` didn't exist yet when `ls` ran. Let me redo that cleanly.`gtd view` works — extension optional, renders headers and body. Everything's verified.Done. Here's the `gtd` bash wrapper. It locates `gtd.py` and `gtd_email_preview.py` relative to its own location (resolving symlinks), so you can keep all three together and call `gtd` from anywhere.
+
+**Setup:**
+
+```bash
+chmod +x /path/to/gtd
+```
+
+Then in `~/.zshrc`, either alias it:
+
+```bash
+alias gtd="/path/to/gtd"
+```
+
+or put its directory on `PATH`:
+
+```bash
+export PATH="/path/to:$PATH"
+```
+
+**Usage:**
+
+```bash
+gtd list                                    # FORCE_COLOR=1 gtd.py | less -RFX
+gtd view 2026-06-03-project-pudding.eml     # gtd_email_preview.py <file>
+```
+
+Both subcommands verified working, including colour passing through the `list` pipe.
+
+A few small additions beyond the literal request, all optional to care about:
+
+- `gtd list` uses `less -RFX` rather than plain `-R`: `-F` skips the pager when output fits on one screen, `-X` leaves it visible after you quit. If you'd prefer plain `-R`, it's a one-character edit.
+- The script must sit beside the two Python files (it derives their paths from its own). If you'd rather hardcode absolute paths instead, say so and I'll swap the path-resolution block for two fixed paths.
+- It respects a `$PYTHON` env var if set, else uses `python3`.
+- Extra args pass through, so `gtd view foo.eml | glow -` works, and any future flags on `gtd.py` would too.
+
+If you'd like, I can add a line to README.md documenting the `gtd` command.
+
+
+Attached:
+
+- gtd.sh _(as of this commit)_
