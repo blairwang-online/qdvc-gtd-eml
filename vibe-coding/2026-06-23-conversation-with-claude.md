@@ -144,3 +144,40 @@ Example output:
 If correspondent lists get long, one option would be to cap them (e.g. "first 3 + N more"); easy to add if you'd like it.
 
 Attached: gtd.py _(as of this commit)_
+
+## 9. User request
+
+I want to be able to specify correspondents to exclude from the correspondent listings (e.g., to exclude my own email addresses). Please configure this in gtd.py.ini
+
+Also, list correspondents vertically please.
+
+## 10. LLM response
+
+I'll add an `exclude_correspondents` INI setting (comma-separated, matched against email addresses) and list correspondents one per line. Let me check the config loader first, since this is a list, not a scalar.I'll add `exclude_correspondents` as a list default and teach `load_config` to parse list-typed keys (comma/newline separated).Now update `get_email_correspondents` to take an exclude list, and switch the report block to vertical listing. Let me view the correspondents function.Now thread `exclude` through `file_report_line`, and make correspondents vertical. Let me view the current report functions.Now thread `exclude` through `print_report` and `main`.Both changes work. The exclude list parsed correctly from the comma-separated INI value, and `me@example.com` and `carol@example.com` were both dropped, leaving only Jane and Bob listed vertically, one per line.Done.
+
+**Exclude list** — New `exclude_correspondents` setting (default empty). In `gtd.py.ini` it's comma- or newline-separated; addresses are matched case-insensitively against each correspondent's email and dropped. `load_config` now handles list-typed keys generically.
+
+```ini
+[settings]
+working_directory = "/home/james/gtd-eml-data"
+exclude_correspondents = james@me.com, james.work@company.com
+```
+
+**Vertical listing** — Correspondents now print one per line, each indented to align under the subject:
+
+```
+2026-06-03  (20d)   Project Pudding
+                    2026-06-03-project-pudding.eml
+                    Jane Doe <jane@example.com>
+                    Bob <bob@example.com>
+```
+
+You can also split the exclude list across lines if it gets long:
+
+```ini
+exclude_correspondents =
+    james@me.com,
+    james.work@company.com
+```
+
+Attached: gtd.py _(as of this commit)_

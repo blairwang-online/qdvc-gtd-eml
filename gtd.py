@@ -39,6 +39,7 @@ DEFAULTS = {
     "archive_report_n": 10,    # number of most recent archive files to report
     "green_max_days": 2,       # days < this -> green
     "yellow_max_days": 14,     # days < this (and >= green) -> yellow; else red
+    "exclude_correspondents": [],  # email addresses to omit from listings
 }
 
 # ANSI colour codes used for report lines.
@@ -66,12 +67,13 @@ METADATA_HEADERS = ["eml_filename", "general_notes", "project"]
 def load_config(ini_path=INI_FILE):
     """
     Load settings from a [settings] section in the INI file, falling back to
-    DEFAULTS for any key not present. Integer keys are coerced to int.
+    DEFAULTS for any key not present. Integer keys are coerced to int; list
+    keys (e.g. exclude_correspondents) are split on commas/newlines and
+    lower-cased.
 
-    Example (gtd.py.ini contains working_directory = "/data" and green_max_days = 1):
-        load_config("/path/gtd.py.ini")
-        # -> {"working_directory": "/data", "max_filename_chars": 60,
-        #     "archive_report_n": 10, "green_max_days": 1, "yellow_max_days": 14}
+    Example (gtd.py.ini sets exclude_correspondents = me@x.com, boss@x.com):
+        load_config("/path/gtd.py.ini")["exclude_correspondents"]
+        # -> ["me@x.com", "boss@x.com"]
     """
     cfg = dict(DEFAULTS)
     parser = configparser.ConfigParser()
@@ -82,8 +84,17 @@ def load_config(ini_path=INI_FILE):
             for key in cfg:
                 if key in section:
                     raw = section[key].strip().strip('"').strip("'")
-                    if isinstance(DEFAULTS[key], int):
+                    if isinstance(DEFAULTS[key], bool):
+                        cfg[key] = raw.lower() in ("1", "true", "yes", "on")
+                    elif isinstance(DEFAULTS[key], int):
                         cfg[key] = int(raw)
+                    elif isinstance(DEFAULTS[key], list):
+                        parts = re.split(r"[,\n]", section[key])
+                        cfg[key] = [
+                            p.strip().strip('"').strip("'").lower()
+                            for p in parts
+                            if p.strip().strip('"').strip("'")
+                        ]
                     else:
                         cfg[key] = raw
     return cfg
@@ -188,18 +199,22 @@ def get_email_date(message):
     return datetime.now(timezone.utc)
 
 
-def get_email_correspondents(message):
+def get_email_correspondents(message, exclude=None):
     """
     Return a de-duplicated, order-preserving list of correspondent display
-    names/addresses drawn from the From, To, and Cc headers (decoded).
+    names/addresses drawn from the From, To, and Cc headers (decoded). Any
+    correspondent whose email address (case-insensitive) is in `exclude` is
+    omitted.
 
     Example:
-        get_email_correspondents(msg)
+        get_email_correspondents(msg, exclude=["bob@y.com"])
         # From: "Jane Doe <jane@x.com>", To: "bob@y.com"
-        # -> ["Jane Doe <jane@x.com>", "bob@y.com"]
+        # -> ["Jane Doe <jane@x.com>"]
     """
     from email.header import decode_header, make_header
     from email.utils import getaddresses
+
+    exclude_set = {e.lower() for e in (exclude or [])}
 
     raw_values = []
     for header in ("From", "To", "Cc"):
@@ -207,6 +222,8 @@ def get_email_correspondents(message):
 
     people = []
     for name, addr in getaddresses(raw_values):
+        if addr and addr.lower() in exclude_set:
+            continue
         try:
             name = str(make_header(decode_header(name))).strip()
         except Exception:
@@ -350,20 +367,24 @@ def colourize(text, colour_name, enabled=True):
     return f"{COLOURS[colour_name]}{text}{COLOURS['reset']}"
 
 
-def file_report_line(base_dir, folder, filename, today=None):
+def file_report_line(base_dir, folder, filename, exclude=None, today=None):
     """
     Build a multi-line report block for one file:
         <date> (<elapsed>d)   <subject>
                               <filename>
-                              <correspondent1>; <correspondent2>; ...
+                              <correspondent1>
+                              <correspondent2>
+                              ...
 
+    Correspondents in `exclude` (by email address) are omitted.
     Returns (block_text, date_dt, elapsed).
 
     Example:
         file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml")
         # -> ("2026-06-03  (20d)   Meeting Minutes\\n"
         #     "                    2026-06-03-x.eml\\n"
-        #     "                    Jane <jane@x.com>; bob@y.com", date_dt, 20)
+        #     "                    Jane <jane@x.com>\\n"
+        #     "                    bob@y.com", date_dt, 20)
     """
     if today is None:
         today = datetime.now(timezone.utc)
@@ -372,41 +393,42 @@ def file_report_line(base_dir, folder, filename, today=None):
     message = read_eml_message(path)
     date_dt = get_email_date(message)
     subject = get_email_subject(message) or "(no subject)"
-    correspondents = get_email_correspondents(message)
+    correspondents = get_email_correspondents(message, exclude=exclude)
 
     date_str = date_dt.strftime("%Y-%m-%d")
     elapsed = (today.date() - date_dt.date()).days
     elapsed_str = f"({elapsed}d)".rjust(6)  # right-align up to "(9999d)"-ish
 
     indent = " " * len(f"{date_str} {elapsed_str}   ")
-    people = "; ".join(correspondents) if correspondents else "(no correspondents)"
+    rows = [f"{date_str} {elapsed_str}   {subject}", f"{indent}{filename}"]
+    if correspondents:
+        rows.extend(f"{indent}{c}" for c in correspondents)
+    else:
+        rows.append(f"{indent}(no correspondents)")
 
-    block = (
-        f"{date_str} {elapsed_str}   {subject}\n"
-        f"{indent}{filename}\n"
-        f"{indent}{people}"
-    )
-    return block, date_dt, elapsed
+    return "\n".join(rows), date_dt, elapsed
 
 
-def report_folder(base_dir, folder, colour_cfg, limit=None):
+def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None):
     """
-    Print a report block for a folder, colour-coding each line by elapsed days.
+    Print a report block for a folder, colour-coding each entry by elapsed days.
     If limit is set, show only the most recent `limit` files (by email date).
-    `colour_cfg` is (green_max, yellow_max, enabled).
+    `colour_cfg` is (green_max, yellow_max, enabled); `exclude` is a list of
+    correspondent addresses to omit.
 
     Example:
-        report_folder("/home/me/gtd", "05-archive", (2, 14, True), limit=10)
-        # -> prints up to 10 most-recent, colour-coded archive lines
+        report_folder("/home/me/gtd", "05-archive", (2, 14, True),
+                      exclude=["me@x.com"], limit=10)
+        # -> prints up to 10 most-recent, colour-coded archive entries
     """
     green_max, yellow_max, enabled = colour_cfg
     files = list_eml_files(base_dir, folder)
     lines = []
     for name in files:
         try:
-            line, date_dt, elapsed = file_report_line(base_dir, folder, name)
-            line = colourize(line, colour_for_days(elapsed, green_max, yellow_max), enabled)
-            lines.append((date_dt, line))
+            block, date_dt, elapsed = file_report_line(base_dir, folder, name, exclude=exclude)
+            block = colourize(block, colour_for_days(elapsed, green_max, yellow_max), enabled)
+            lines.append((date_dt, block))
         except Exception as e:
             lines.append((datetime.min.replace(tzinfo=timezone.utc),
                           f"!! could not read {name}: {e}"))
@@ -418,22 +440,22 @@ def report_folder(base_dir, folder, colour_cfg, limit=None):
     print(f"\n=== {folder} ({len(files)} file{'s' if len(files) != 1 else ''}) ===")
     if not lines:
         print("   (empty)")
-    for _, line in lines:
-        print(line)
+    for _, block in lines:
+        print(block)
 
 
-def print_report(base_dir, archive_n, colour_cfg):
+def print_report(base_dir, archive_n, colour_cfg, exclude=None):
     """
     Print the full GTD status report across the relevant folders.
 
     Example:
-        print_report("/home/me/gtd", 10, (2, 14, True))
+        print_report("/home/me/gtd", 10, (2, 14, True), exclude=["me@x.com"])
         # -> prints triage, actionable, reference, last-10 archive blocks
     """
-    report_folder(base_dir, TRIAGE_DIR, colour_cfg)
-    report_folder(base_dir, ACTIONABLE_DIR, colour_cfg)
-    report_folder(base_dir, REFERENCE_DIR, colour_cfg)
-    report_folder(base_dir, ARCHIVE_DIR, colour_cfg, limit=archive_n)
+    report_folder(base_dir, TRIAGE_DIR, colour_cfg, exclude=exclude)
+    report_folder(base_dir, ACTIONABLE_DIR, colour_cfg, exclude=exclude)
+    report_folder(base_dir, REFERENCE_DIR, colour_cfg, exclude=exclude)
+    report_folder(base_dir, ARCHIVE_DIR, colour_cfg, exclude=exclude, limit=archive_n)
 
 
 # --------------------------------------------------------------------------- #
@@ -499,7 +521,8 @@ def main():
         print("No new files in 01-input.")
 
     sync_metadata(base_dir)
-    print_report(base_dir, cfg["archive_report_n"], colour_cfg)
+    print_report(base_dir, cfg["archive_report_n"], colour_cfg,
+                 exclude=cfg["exclude_correspondents"])
 
 
 if __name__ == "__main__":
