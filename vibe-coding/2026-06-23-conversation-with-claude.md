@@ -481,3 +481,29 @@ This also fixed a latent bug: `gtd_email_preview.py` was still reading the old `
 To run them, keep `config.yml` and the `gtd_modules` folder alongside `gtd.py` / `gtd_email_preview.py`. The package is imported by name, so the scripts need to be launched from their own directory (or that directory on `PYTHONPATH`) — the usual setup. If you'd rather be able to run them from anywhere regardless of working directory, I can add a small `sys.path` bootstrap to each entrypoint.
 
 Attached: all files mentioned above _(as of this commit)_
+
+## 27. User request
+
+Write some useful documentation in a markdown file, that can assist a human or AI worker who needs to maintain this codebase in future.
+
+One little request to help the human worker: a graph, in mermaid, that shows the dependencies between all the Python files.
+
+## 28. LLM response
+
+I'll verify the actual import dependencies from the code rather than guessing, then write the doc.Edges confirmed. Now I'll write the maintenance doc.Let me validate the Mermaid syntax renders correctly before handing it over.The mermaid CLI couldn't run in this sandbox, but let me do a proper render check with a local mermaid parser to be sure the syntax is valid.The CLI likely fails silently (needs a headless browser that isn't available offline). Let me validate the syntax with the mermaid parser library directly instead.That error is a DOM-environment limitation of the parser in Node, not a syntax error in the graph. Let me set up jsdom so `mermaid.parse` can run properly.Mermaid syntax validated as a correct `flowchart-v2`. The 20 edges I confirmed earlier all match the actual imports in the code.Done. `MAINTENANCE.md` covers what a future maintainer needs:
+
+- **What the system does** and the two entry points
+- **Disk layout** (both the runtime folders and the code tree)
+- **Mermaid dependency graph** — validated against the real imports (20 edges, parses cleanly as a flowchart). It marks `config.py`, `emailutil.py`, and `naming.py` as the safe-to-edit leaf modules.
+- **Configuration reference** for every `config.yml` key
+- **Run flow** of `gtd.py` step by step
+- **Key behaviours that are easy to break** — the protected ref suffix in filenames, first-ref-wins, non-destructive metadata sync, the colour-reset placement for the account/next-action lines, archive-omits-next-action, etc.
+- **Shared vs tool-specific code**, including the `render_html` flag rationale
+- **A quick manual smoke-test recipe** and the one-liner to regenerate the dependency edges
+- **Dependencies** (Python 3.8+, optional PyYAML, optional `less`/`glow`)
+
+The dependency graph reflects the current structure: both entry points lean on `config` and `fs`; `ingest` is the widest consumer (pulls in `emailutil`, `naming`, `fs`, `config`); and `emailutil` is the shared email-parsing core.
+
+One note: the maintenance guide documents the requirement that both scripts run from the directory containing `gtd_modules/`. If you'd like, I mentioned earlier I could add a small `sys.path` bootstrap so they run from anywhere — say the word and I'll add it and update the doc to match.
+
+Attached: maintenance.md _(as of this commit)_
