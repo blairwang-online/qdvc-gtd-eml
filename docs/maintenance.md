@@ -141,6 +141,7 @@ archive_report_n: 10          # how many recent archive items to show
 green_max_days: 2             # age < this  -> green
 yellow_max_days: 14           # age < this  -> yellow ; otherwise red
 max_subject_chars: 72         # subjects longer than this are truncated with "…"
+force_colour: false           # true = always emit colour (e.g. when piping to `less -R`)
 my_own_accounts:              # used to label/exclude your own addresses
   - email_address: james.smith@example.com
     display_name: "Work account"
@@ -170,8 +171,34 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
 5. `metadata.load_metadata()` then `report.print_report()` → the on-screen
    report.
 
-Colour is enabled only when stdout is a TTY (`sys.stdout.isatty()`), so piping
-to a file or pager produces clean text.
+### Colour output and paging
+
+Whether colour is emitted is decided by `config.should_use_colour(cfg, stream)`,
+with this precedence (highest first):
+
+1. `NO_COLOR` env var set (to anything) → never colour (see https://no-color.org).
+2. `FORCE_COLOR` env var truthy → always colour. Values `0`/`false`/`no`/`off`/
+   empty do **not** force (see https://force-color.org).
+3. `force_colour: true` in `config.yml` → always colour.
+4. Otherwise → colour only when stdout is a TTY (`stream.isatty()`).
+
+So by default piping to a file or pager produces clean text. To page **with**
+colour and full scroll support (wheel, PgUp/PgDown, `/`-search):
+
+```bash
+FORCE_COLOR=1 python gtd.py | less -R      # or set force_colour: true in config.yml
+```
+
+`less -R` passes ANSI colour through; without `-R` the codes show as literal
+garbage. Add `-F` (skip pager for short output) and `-X` (don't clear on quit):
+`less -RFX`.
+
+**Multi-line colour gotcha:** pagers like `less` and many terminals reset SGR
+colour state at every newline. A report entry is a multi-line block, so
+`report.colourize()` re-applies the colour code at the **start of every line**
+(and resets at the end of every line), not just once around the whole block. If
+you ever "simplify" `colourize` back to a single leading code + trailing reset,
+only the first line of each entry will be coloured under `less`. Don't.
 
 ---
 
@@ -204,10 +231,12 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
   keys off that list.
 
 ### Report rendering (`report.py`)
-- Age colour (green/yellow/red) wraps only the **body block**. The own-account
-  label and the `└─ next:` line are emitted *after* the colour reset so they
-  render distinctly — the account in its own configured colour, the next action
-  uncoloured.
+- Age colour (green/yellow/red) wraps only the **body block** (date/subject,
+  filename, correspondents). The own-account label and the `└─ next:` line are
+  emitted with their colour applied *separately* so they render distinctly — the
+  account in its own configured colour, the next action uncoloured.
+- The colour code is re-applied per line within a block (see the multi-line
+  colour gotcha in §6) so it survives `less -R`.
 - Correspondents exclude your own accounts and are capped at 3, with a
   `+ N more` line.
 - The own-account label appears in **every** segment; `next_action` appears in
@@ -252,8 +281,10 @@ Useful checks when touching the relevant area:
 - **Naming**: a very long subject + a ref, under a small `max_filename_chars`,
   should keep the full ref and truncate the subject.
 - **Refs**: a base64 body and a multi-ref thread (first wins).
-- **Colour**: force a TTY by calling `report.print_report(...)` with the colour
-  flag `True` and pipe through `cat -v` to see the ANSI codes.
+- **Colour**: run `FORCE_COLOR=1 python gtd.py | cat -v` to see the ANSI codes.
+  Each line of a report entry should begin with the same colour code (e.g.
+  `^[[31m`) and end with `^[[0m` — not just the first line. Also confirm
+  `NO_COLOR=1 python gtd.py | cat -v` emits zero escape sequences.
 - **Metadata migration**: hand-write an older CSV missing a column and confirm
   it gains the column with existing values intact.
 

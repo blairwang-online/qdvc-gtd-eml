@@ -32,13 +32,21 @@ def colourize(text, colour_name, enabled=True):
     Wrap text in ANSI colour codes for the named colour. If disabled (e.g. when
     output is not a TTY), return the text unchanged.
 
+    For multi-line text, the colour code is re-applied at the START of every
+    line (and reset at the end of every line). This is necessary because pagers
+    like `less -R` and many terminals reset SGR colour state at each newline, so
+    a single leading code would only colour the first line.
+
     Example:
-        colourize("hi", "green")        # -> "\\033[32mhi\\033[0m"
-        colourize("hi", "green", False) # -> "hi"
+        colourize("hi", "green")          # -> "\\033[32mhi\\033[0m"
+        colourize("a\\nb", "green")        # -> "\\033[32ma\\033[0m\\n\\033[32mb\\033[0m"
+        colourize("hi", "green", False)   # -> "hi"
     """
     if not enabled or colour_name not in config.COLOURS:
         return text
-    return f"{config.COLOURS[colour_name]}{text}{config.COLOURS['reset']}"
+    start = config.COLOURS[colour_name]
+    reset = config.COLOURS["reset"]
+    return "\n".join(f"{start}{line}{reset}" for line in text.split("\n"))
 
 
 def truncate(text, max_chars):
