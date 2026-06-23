@@ -214,3 +214,10 @@ The wrapping you saw was almost certainly the correspondent lines — a full `Na
 Also, `└─` uses box-drawing characters like `tree`. If your terminal font renders them oddly, a plain-ASCII alternative (e.g. `>> next:`) is a one-line change.
 
 Attached: gtd.py _(as of this commit)_
+
+## 13. User request
+
+Please update the next action part (with the tree connector) to display without the colourized colours. That helps it look visually distinct. Also please each correspondent with the text "With: "
+
+## 14. LLM response
+
