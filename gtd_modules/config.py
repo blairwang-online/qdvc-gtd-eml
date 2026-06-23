@@ -48,6 +48,19 @@ REFERENCE_DIR = "05-reference"
 ARCHIVE_DIR = "06-archive"
 
 ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, DELEGATED_DIR, REFERENCE_DIR, ARCHIVE_DIR]
+
+# Short names accepted by `gtd.py alloc` (and elsewhere) -> the numbered folder.
+# Both the bare alias ("delegated") and the full folder name ("04-delegated")
+# resolve, so either works on the command line.
+FOLDERS_BY_ALIAS = {
+    "input": INPUT_DIR,
+    "triage": TRIAGE_DIR,
+    "actionable": ACTIONABLE_DIR,
+    "delegated": DELEGATED_DIR,
+    "reference": REFERENCE_DIR,
+    "archive": ARCHIVE_DIR,
+}
+
 METADATA_FILE = "metadata.csv"
 METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "message_ref", "flags"]
 

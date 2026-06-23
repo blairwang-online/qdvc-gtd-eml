@@ -6,16 +6,17 @@ them in a folder, and let the tool file and track them.
 
 ## How it works
 
-You export emails as `.eml` files into `01-input/`. Running `gtd.py`:
+You export emails as `.eml` files into `01-input/`. Running `gtd.py list`:
 
 - **renames** each new file to `yyyy-mm-dd-brief-description.eml` (derived from
   the date and subject), then moves it to `02-triage/`;
 - prints a **status report** of what's in each folder, colour-coded by age, with
   correspondents and your next action.
 
-You then manually move each triaged file into `03-actionable/`, `04-delegated/`,
-`05-reference/`, or `06-archive/`. Annotations (notes, project, next action) live
-in a `metadata.csv` the tool keeps in sync.
+You then file each triaged email into `03-actionable/`, `04-delegated/`,
+`05-reference/`, or `06-archive/` — either by hand or with `gtd.py alloc`.
+Annotations (notes, project, next action) live in a `metadata.csv` the tool
+keeps in sync.
 
 ```
 01-input  →  02-triage  →  03-actionable
@@ -27,18 +28,27 @@ in a `metadata.csv` the tool keeps in sync.
 ## Usage
 
 ```bash
-python gtd.py                              # ingest new files + print the report
-python gtd_email_preview.py <file.eml>     # preview one email (headers + body)
+python gtd.py list                       # ingest new files + print the report
+python gtd.py view <file.eml>            # preview one email (headers + body)
+python gtd.py alloc <file.eml> <dest>    # move an email to another folder
+python gtd.py help                       # full command overview
 ```
+
+`alloc`'s destination is a short name (`actionable`, `delegated`, `reference`,
+`archive`, `triage`, `input`) or the full folder name (e.g. `04-delegated`).
 
 Page through a long report with colours and scrolling:
 
 ```bash
-FORCE_COLOR=1 python gtd.py | less -R
+FORCE_COLOR=1 python gtd.py list | less -R
 ```
 
-The preview is markdown-friendly, so it also pipes nicely into
-[`glow`](https://github.com/charmbracelet/glow).
+`view` output is markdown-friendly, so it also pipes nicely into
+[`glow`](https://github.com/charmbracelet/glow):
+
+```bash
+python gtd.py view <file.eml> | glow -
+```
 
 ## Configuration
 
@@ -72,4 +82,4 @@ the conventions to preserve when editing.
 
 This codebase was vibe-coded with assistance from Claude Opus 4.8 High. The full
 conversation behind it is preserved in
-[vibe-coding/2026-06-23-conversation-with-claude.md](vibe-coding/2026-06-23-conversation-with-claude.md).
+[`vibe-coding/2026-06-23-conversation-with-claude.md`](vibe-coding/2026-06-23-conversation-with-claude.md).

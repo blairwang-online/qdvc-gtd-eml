@@ -797,3 +797,61 @@ If you'd like, I can add a line to README.md documenting the `gtd` command.
 Attached:
 
 - gtd.sh _(as of this commit)_
+
+## 43. User request
+
+OK, I think perhaps we take a different approach:
+
+1. Combine the current `gtd.py` and `gtd_email_preview.py` into a single `gtd.py` file, with email-preview-specific logic refactored into a new file in `gtd_modules`
+2. This new `gtd.py` file can do either `gtd.py list` (displays the output equivalent to what was, to this point, running `gtd.py`) or `gtd.py view XYZ.eml`
+3. Delete `gtd.sh` as its functionality should now be largely provided by `gtd.py` (I can pipe to less myself, don't need that shorthand)
+
+I would also like some new functionalities:
+
+- `gtd.py alloc XYZ.eml delegated` (finds where XYZ.eml is currently filed, and moves it to the "delegated" folder. Should also be able to do this for the other folders)
+
+- `gtd.py help` (displays overview of functionalities available: preview, list, alloc; with some brief instructions/examples)
+
+## 44. LLM response
+
+A good consolidation. Let me clarify the `alloc` design before building, then plan the refactor.
+
+A few decisions for `alloc`:
+- The destination argument — I'll accept the short name (`delegated`, `actionable`, `reference`, `archive`, `triage`, `input`) and map it to the numbered folder, so you don't type `04-delegated`.
+- It should refuse to "move" a file that's already in the target folder, and error clearly if the file isn't found.
+
+Let me check the current preview entrypoint and config so the refactor lines up.The preview rendering already lives in `gtd_modules/preview.py`. The task says "email-preview-specific logic refactored into a new file" — the *rendering* is already modularised; what's left in the entrypoint is the locate-and-render *command* wiring. I'll create command modules so each subcommand's logic lives in `gtd_modules`, keeping the new `gtd.py` a thin dispatcher. Let me check the current `gtd.py` main and the fs folder constants.Now let me look at the fs.py to add a folder-name resolver for `alloc`.Now I'll build. First, add a folder-alias map to config so `alloc`'s destination names resolve. I'll add it near the folder constants.Now add a `resolve_folder` helper and a `move_eml` helper to fs.py.Now create a `commands.py` module in the package holding the three subcommand implementations (`cmd_list`, `cmd_view`, `cmd_alloc`) plus `cmd_help`. This keeps `gtd.py` a thin dispatcher.Now rewrite `gtd.py` as a thin dispatcher and delete the old preview entrypoint and the bash wrapper.Note: the task referred to "gtd.sh" but the wrapper was named `gtd` — that's the one I deleted (there was no `.sh`). Now let me test all four subcommands end to end.`list` and `view` work. Now `alloc` — move triage→delegated, verify with `view`, test idempotency, unknown destination, and missing file.`alloc` works in every case: moves across folders, recognises both aliases and full folder names, is idempotent when already in place, handles missing extension, and returns proper exit codes for bad destination (2) and missing file (1). Now the help/dispatch paths.All dispatch paths correct. Now update the docs to reflect the new CLI, the removed second script, and the `alloc` command. Let me find the relevant passages.Let me update README first — the Usage block and the "How it works" prose.Now MAINTENANCE.md — there's quite a bit: the entry-points table, code-layout tree, dependency graph, run-flow section, and various command references. Let me handle them. First the entry-points section.Now the dependency graph. Let me view it and rebuild with the new `commands.py` node and corrected edges.Let me verify the actual edges from the code before redrawing, so the graph is accurate.Now I have exact edges. `gtd.py` → `commands` only; `commands` → config, fs, emailutil, ingest, metadata, preview, report. Let me rebuild the graph.Now the remaining MAINTENANCE references: §6 run-flow header, the preview bullet, shared-code paragraph, and §9 testing commands. Let me view §6.Now the §6 multi-line gotcha example, the preview bullet (§7), shared-code paragraph (§8), and §9 testing. Let me view those.That section's fine now. Let me check the preview bullet, shared-code section, and §9.Also update §1 of MAINTENANCE which describes "Running gtd.py". Let me check.Now let me re-validate the updated mermaid graph and do a final integration test of all commands.Graph still valid. Final clean integration run of every command from scratch.The full workflow works: `list` ingests and reports, `alloc` moves triage→actionable, `view` confirms the file's new location in its header, and the next `list` shows it filed under actionable.Everything's in place and the old files are gone.Done. Here's what changed.
+
+**Consolidation.** `gtd.py` is now a single subcommand dispatcher (~75 lines). The old `gtd_email_preview.py` and the `gtd` bash wrapper are deleted. Preview-specific wiring moved into a new `gtd_modules/commands.py`, which holds all four handlers (`cmd_list`, `cmd_view`, `cmd_alloc`, `cmd_help`); the markdown rendering stays in `preview.py` where it already lived.
+
+**Commands:**
+
+```bash
+python gtd.py list                       # = the old gtd.py behaviour (ingest + report)
+python gtd.py view <file.eml>            # = the old gtd_email_preview.py
+python gtd.py alloc <file.eml> <dest>    # new: relocate a filed email
+python gtd.py help                       # new: command overview
+```
+
+**`alloc`** finds the email wherever it's currently filed and moves it. The destination accepts a short alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or the full folder name (`04-delegated`). It no-ops if the file is already in the target, and returns clean exit codes (1 for missing file, 2 for bad destination). It deliberately doesn't touch `metadata.csv` — metadata keys off the filename, which never changes, so a move needs no resync.
+
+**`help`** (also shown for no args, `-h`, `--help`, or an unknown command) lists all three commands with examples.
+
+**Docs** updated throughout: README usage block, and MAINTENANCE's entry-point section, code-layout tree, dependency graph (rebuilt with `commands.py` as the hub and re-validated as valid mermaid), command-flow section, testing recipes, and the scattered references to the old second script.
+
+All four commands tested end to end, including a full `list → alloc → view → list` round trip.
+
+Two notes:
+
+`view` and `alloc` both run on the current on-disk state and don't trigger ingestion — only `list` ingests from `01-input`. That matches the previous behaviour (the old preview tool didn't ingest either), but it does mean a brand-new email sitting in `01-input` won't be `view`-able until you've run `list` once to triage it. Tell me if you'd prefer `view`/`alloc` to also see raw input files.
+
+The `BrokenPipeError` guard now lives in `gtd.py`'s `__main__`, so it protects `view` output piped to `less`/`head` exactly as before.
+
+Attached:
+
+- gtd.py
+- commands.py
+- fs.py
+- config.py
+- README.md
+- MAINTENANCE.md

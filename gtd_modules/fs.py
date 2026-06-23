@@ -68,3 +68,43 @@ def find_eml(base_dir, filename):
         if os.path.isfile(candidate):
             return candidate
     return None
+
+
+def resolve_folder(name):
+    """
+    Resolve a folder alias or full folder name to its canonical folder name,
+    or None if unrecognised. Case-insensitive.
+
+    Example:
+        resolve_folder("delegated")     # -> "04-delegated"
+        resolve_folder("04-delegated")  # -> "04-delegated"
+        resolve_folder("nope")          # -> None
+    """
+    key = (name or "").strip().lower()
+    if key in config.FOLDERS_BY_ALIAS:
+        return config.FOLDERS_BY_ALIAS[key]
+    if key in config.ALL_DIRS:
+        return key
+    return None
+
+
+def move_eml(src_path, base_dir, dest_folder):
+    """
+    Move an EML file to dest_folder under base_dir. Returns the new full path.
+    The destination folder is created if missing. Raises FileExistsError if a
+    file of the same name already exists there.
+
+    Example:
+        move_eml("/g/03-actionable/x.eml", "/g", "04-delegated")
+        # -> "/g/04-delegated/x.eml"
+    """
+    filename = os.path.basename(src_path)
+    dest_dir = os.path.join(base_dir, dest_folder)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, filename)
+    if os.path.abspath(dest_path) == os.path.abspath(src_path):
+        return dest_path  # already there; caller decides what to report
+    if os.path.exists(dest_path):
+        raise FileExistsError(dest_path)
+    os.rename(src_path, dest_path)
+    return dest_path

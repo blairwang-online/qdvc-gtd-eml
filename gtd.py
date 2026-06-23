@@ -1,66 +1,71 @@
 #!/usr/bin/env python3
 """
-GTD (Getting Things Done) workflow based on EML email files.
+GTD (Getting Things Done) workflow over EML email files.
 
 Folder structure (relative to working_directory, set in config.yml):
     01-input       <- you manually drop new .eml files here
-    02-triage      <- script renames + moves new files here
-    03-actionable  <- you move files here
-    04-delegated   <- you move files here
-    05-reference   <- you move files here
-    06-archive     <- you move files here
+    02-triage      <- `list` renames + moves new files here
+    03-actionable  <- you file emails here (via `alloc` or by hand)
+    04-delegated   <- you file emails here
+    05-reference   <- you file emails here
+    06-archive     <- you file emails here
 
-Run the script to:
-    1. Ingest & rename new files from 01-input into 02-triage.
-    2. Produce a report on triage / actionable / reference / recent archive.
-    3. Ensure metadata.csv exists & is in sync with current .eml files.
+Commands (run `gtd.py help` for details):
+    gtd.py list                       ingest new input + print the status report
+    gtd.py view <file.eml>            preview a single email
+    gtd.py alloc <file.eml> <dest>    move an email to another folder
+    gtd.py help                       show the command overview
 
-Implementation lives in the gtd_modules package; this file just wires it
-together.
+Implementation lives in the gtd_modules package; this file just dispatches.
 """
 
+import os
 import sys
 
-from gtd_modules import config as cfg_mod
-from gtd_modules.fs import ensure_folders
-from gtd_modules.ingest import ingest_input_files
-from gtd_modules.metadata import load_metadata, sync_metadata
-from gtd_modules.report import print_report
+from gtd_modules import commands
+
+# Map subcommand name -> handler. Each handler takes the remaining argv list
+# and returns an exit code.
+COMMANDS = {
+    "list": commands.cmd_list,
+    "view": commands.cmd_view,
+    "alloc": commands.cmd_alloc,
+    "help": commands.cmd_help,
+}
 
 
-def main():
+def main(argv):
     """
-    Orchestrate: load config -> ensure folders -> ingest -> sync metadata -> report.
+    Dispatch to the requested subcommand.
 
     Example:
-        main()  # run as `python gtd.py`
+        main(["list"])                      # -> runs the report, returns 0
+        main(["view", "2026-06-03-x.eml"])  # -> previews one email
     """
-    cfg = cfg_mod.load_config()
-    base_dir = cfg["working_directory"]
-    colour_enabled = cfg_mod.should_use_colour(cfg, sys.stdout)
-    colour_cfg = (cfg["green_max_days"], cfg["yellow_max_days"], colour_enabled)
+    if not argv:
+        commands.cmd_help([])
+        return 2
 
-    ensure_folders(base_dir)
+    name, rest = argv[0], argv[1:]
+    if name in ("-h", "--help"):
+        return commands.cmd_help([])
 
-    moved = ingest_input_files(base_dir, cfg["max_filename_chars"])
-    new_refs = {}
-    if moved:
-        print("Ingested from 01-input -> 02-triage:")
-        for old_name, new_name, message_ref in moved:
-            tag = f"   (ref {message_ref})" if message_ref else ""
-            print(f"   {old_name}  ->  {new_name}{tag}")
-            if message_ref:
-                new_refs[new_name] = {"message_ref": message_ref}
-    else:
-        print("No new files in 01-input.")
+    handler = COMMANDS.get(name)
+    if handler is None:
+        print(f"gtd.py: unknown command '{name}'\n", file=sys.stderr)
+        commands.cmd_help([])
+        return 2
 
-    sync_metadata(base_dir, new_values=new_refs)
-    metadata = load_metadata(base_dir)
-    print_report(base_dir, cfg["archive_report_n"], colour_cfg,
-                 accounts=cfg["my_own_accounts"],
-                 max_subject=cfg["max_subject_chars"],
-                 metadata=metadata)
+    return handler(rest)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except BrokenPipeError:
+        # Reader (e.g. `less` quit early, or `head`) closed the pipe; exit quietly.
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        os._exit(0)

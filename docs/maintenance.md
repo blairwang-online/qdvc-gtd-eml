@@ -14,29 +14,39 @@ folder. The toolkit then:
 1. **Ingests** each new file: reads its headers and body, derives a tidy
    filename from the date + subject (plus a detected *message ref*), and moves
    it into `02-triage`.
-2. Leaves **you** to manually file each triaged email into `03-actionable`,
-   `04-delegated`, `05-reference`, or `06-archive`.
+2. Lets **you** file each triaged email into `03-actionable`, `04-delegated`,
+   `05-reference`, or `06-archive` — with `gtd.py alloc` or by hand.
 3. **Reports** on what's sitting in each folder — colour-coded by age, showing
    correspondents, which of your own accounts received it, and the next action.
 4. Keeps a **`metadata.csv`** at the working-directory root in sync with the
    files that currently exist, so you can annotate emails with notes, a project,
    and a next action.
 
-A companion tool **previews** a single email in a terminal- and `glow`-friendly
-format.
+The same `gtd.py` also **previews** a single email in a terminal- and
+`glow`-friendly format (`gtd.py view`).
 
 ---
 
-## 2. The two entry points
+## 2. The single entry point
+
+`gtd.py` is a thin **command dispatcher**. It takes a subcommand as its first
+argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 
 | Command | Purpose |
 | --- | --- |
-| `python gtd.py` | Run the full workflow: ingest → sync metadata → print report. Takes no arguments. |
-| `python gtd_email_preview.py <filename.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
+| `python gtd.py list` | Run the full workflow: ingest → sync metadata → print report. |
+| `python gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
+| `python gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
+| `python gtd.py help` | Print the command overview. |
 
-Both are deliberately thin (~60 lines). All real logic lives in the
-`gtd_modules` package. They must be launched from the directory that contains
-`gtd_modules/` and `config.yml` (or with that directory on `PYTHONPATH`).
+`gtd.py` is deliberately thin (~75 lines): it maps subcommand names to handlers
+and does nothing else. All real logic lives in the `gtd_modules` package. It
+must be launched from the directory that contains `gtd_modules/` and
+`config.yml` (or with that directory on `PYTHONPATH`).
+
+No-argument, `-h`/`--help`, and unknown-command invocations all print the help
+text. Handlers return a process exit code (0 = success, 1 = not-found / runtime
+error, 2 = usage error).
 
 ---
 
@@ -48,25 +58,25 @@ The six workflow folders and `metadata.csv` live under the configured
 ```
 <working_directory>/
     01-input/         # you drop new .eml files here
-    02-triage/        # script moves renamed files here
-    03-actionable/    # you move files here
-    04-delegated/     # you move files here
-    05-reference/     # you move files here
-    06-archive/       # you move files here
+    02-triage/        # `list` moves renamed files here
+    03-actionable/    # you file emails here (via `alloc` or by hand)
+    04-delegated/     # you file emails here
+    05-reference/     # you file emails here
+    06-archive/       # you file emails here
     metadata.csv      # auto-created & kept in sync
 ```
 
 The code itself is laid out as:
 
 ```
-gtd.py                    # entry point: full workflow
-gtd_email_preview.py      # entry point: single-email preview
+gtd.py                    # entry point: subcommand dispatcher
 config.yml                # user settings (see §5)
 gtd_modules/
     __init__.py           # package docstring only
-    config.py             # settings, constants, colours, account normalisation
+    config.py             # settings, constants, colours, folder aliases, account normalisation
+    commands.py           # subcommand handlers: list, view, alloc, help
     emailutil.py          # SHARED email parsing (headers, body, base64/QP, refs)
-    fs.py                 # folder creation, listing, locating files
+    fs.py                 # folder creation, listing, locating + moving files
     naming.py             # filename-convention generation
     ingest.py             # rename + move 01-input → 02-triage
     metadata.py           # metadata.csv load/sync
@@ -78,16 +88,17 @@ gtd_modules/
 
 ## 4. Module dependency graph
 
-Arrows mean "imports / depends on". `config.py`, `emailutil.py`, and
-`naming.py` are leaf modules (no internal dependencies), which makes them the
-safest to edit in isolation.
+Arrows mean "imports / depends on". `gtd.py` dispatches into `commands.py`,
+which is the hub that wires the feature modules together. `config.py`,
+`emailutil.py`, and `naming.py` are leaf modules (no internal dependencies),
+which makes them the safest to edit in isolation.
 
 ```mermaid
 graph TD
     gtd[gtd.py]
-    preview_cli[gtd_email_preview.py]
 
     subgraph gtd_modules
+        commands[commands.py]
         config[config.py]
         emailutil[emailutil.py]
         naming[naming.py]
@@ -98,18 +109,17 @@ graph TD
         preview[preview.py]
     end
 
-    %% entry point: gtd.py
-    gtd --> config
-    gtd --> fs
-    gtd --> ingest
-    gtd --> metadata
-    gtd --> report
+    %% entry point dispatches into the command hub
+    gtd --> commands
 
-    %% entry point: gtd_email_preview.py
-    preview_cli --> config
-    preview_cli --> emailutil
-    preview_cli --> fs
-    preview_cli --> preview
+    %% command hub pulls in every feature module
+    commands --> config
+    commands --> fs
+    commands --> emailutil
+    commands --> ingest
+    commands --> metadata
+    commands --> preview
+    commands --> report
 
     %% internal package edges
     fs --> config
@@ -159,7 +169,11 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
 
 ---
 
-## 6. How a run flows (`gtd.py`)
+## 6. How commands flow
+
+`gtd.py` maps the first argument to a handler in `commands.py`, then calls it.
+
+**`list`** (`commands.cmd_list`) — the original full workflow:
 
 1. `config.load_config()` → settings dict.
 2. `fs.ensure_folders()` → creates any missing folders (and the
@@ -171,6 +185,17 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
    now exist; newly-ingested refs are seeded into the `message_ref` column.
 5. `metadata.load_metadata()` then `report.print_report()` → the on-screen
    report.
+
+**`view`** (`commands.cmd_view`) — `fs.find_eml()` to locate the file across all
+folders, then `preview.render()`.
+
+**`alloc`** (`commands.cmd_alloc`) — `fs.resolve_folder()` turns the destination
+alias into a folder name, `fs.find_eml()` locates the file, and `fs.move_eml()`
+relocates it. No-ops (already in the destination) and collisions are reported
+without touching `metadata.csv` — metadata keys off the filename, which `alloc`
+never changes, so no resync is needed.
+
+**`help`** (`commands.cmd_help`) — prints `commands.HELP_TEXT`.
 
 ### Colour output and paging
 
@@ -187,7 +212,7 @@ So by default piping to a file or pager produces clean text. To page **with**
 colour and full scroll support (wheel, PgUp/PgDown, `/`-search):
 
 ```bash
-FORCE_COLOR=1 python gtd.py | less -R      # or set force_colour: true in config.yml
+FORCE_COLOR=1 python gtd.py list | less -R   # or set force_colour: true in config.yml
 ```
 
 `less -R` passes ANSI colour through; without `-R` the codes show as literal
@@ -249,22 +274,22 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
 - Output is markdown-friendly: an H1 title, a blank line, a ```` ``` ```` fenced
   block of headers, then the body as plain markdown. This renders well in
   `glow` and reads fine in `less`.
-- `gtd_email_preview.py` swallows `BrokenPipeError` so quitting `less` early (or
-  piping to `head`) doesn't dump a traceback.
+- `gtd.py` swallows `BrokenPipeError` so quitting `less` early (or piping to
+  `head`) doesn't dump a traceback — this covers `view` output too.
 
 ---
 
-## 8. Shared vs. tool-specific code
+## 8. Shared code
 
-`emailutil.py` is the shared core used by both entry points. Anything touching
-raw email structure — headers, address parsing, MIME walking, base64 /
-quoted-printable decoding, HTML-to-text, ref detection — belongs here so the two
-tools never drift apart.
+`emailutil.py` is the shared core used across commands. Anything touching raw
+email structure — headers, address parsing, MIME walking, base64 /
+quoted-printable decoding, HTML-to-text, ref detection — belongs here so the
+`list`, `view`, and `alloc` paths never drift apart.
 
 Note `get_email_body_text(message, render_html=False)`: the report/ingest path
-only needs raw text for scanning, while the preview passes `render_html=True` to
-get HTML converted to readable text. Keep that single source of truth rather
-than reintroducing a second body extractor.
+(`list`) only needs raw text for scanning, while the preview (`view`) passes
+`render_html=True` to get HTML converted to readable text. Keep that single
+source of truth rather than reintroducing a second body extractor.
 
 ---
 
@@ -273,28 +298,31 @@ than reintroducing a second body extractor.
 There's no formal test suite. A fast manual smoke test:
 
 ```bash
-# from a scratch dir containing gtd.py, gtd_email_preview.py, gtd_modules/, config.yml
+# from a scratch dir containing gtd.py, gtd_modules/, config.yml
 mkdir -p data/01-input          # point working_directory at ./data in config.yml
 # drop a sample .eml into data/01-input, then:
-python gtd.py                   # should ingest, write metadata.csv, print report
-python gtd_email_preview.py <the-new-filename>
+python gtd.py list              # should ingest, write metadata.csv, print report
+python gtd.py view <the-new-filename>
+python gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
 ```
 
 Useful checks when touching the relevant area:
 - **Naming**: a very long subject + a ref, under a small `max_filename_chars`,
   should keep the full ref and truncate the subject.
 - **Refs**: a base64 body and a multi-ref thread (first wins).
-- **Colour**: run `FORCE_COLOR=1 python gtd.py | cat -v` to see the ANSI codes.
-  Each line of a report entry should begin with the same colour code (e.g.
-  `^[[31m`) and end with `^[[0m` — not just the first line. Also confirm
-  `NO_COLOR=1 python gtd.py | cat -v` emits zero escape sequences.
+- **Colour**: run `FORCE_COLOR=1 python gtd.py list | cat -v` to see the ANSI
+  codes. Each line of a report entry should begin with the same colour code
+  (e.g. `^[[31m`) and end with `^[[0m` — not just the first line. Also confirm
+  `NO_COLOR=1 python gtd.py list | cat -v` emits zero escape sequences.
+- **alloc**: moving to a folder the file is already in should no-op; an
+  unknown destination should exit 2; a missing file should exit 1.
 - **Metadata migration**: hand-write an older CSV missing a column and confirm
   it gains the column with existing values intact.
 
 To inspect the dependency graph programmatically:
 
 ```bash
-for f in gtd.py gtd_email_preview.py gtd_modules/*.py; do
+for f in gtd.py gtd_modules/*.py; do
   echo "### $f"; grep -nE "^(from|import) .*gtd_modules|^from \. " "$f"
 done
 ```
@@ -310,4 +338,4 @@ done
   modules are all standard library.
 
 Optional external tools the output is designed to play nicely with: `less` and
-[`glow`](https://github.com/charmbracelet/glow) for the preview.
+[`glow`](https://github.com/charmbracelet/glow) for the `view` output.
