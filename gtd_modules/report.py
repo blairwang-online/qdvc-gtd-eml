@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 
 from . import config, emailutil, fs
 
+# Colour used for the "└─ PINNED" marker AND for the body block of any pinned
+# entry, so a pinned email reads in one consistent colour rather than being
+# age-coloured (green/yellow/red).
+PINNED_COLOUR = "magenta"
+
 
 def colour_for_days(elapsed, green_max, yellow_max):
     """
@@ -144,7 +149,7 @@ def file_report_line(base_dir, folder, filename, exclude=None,
                           own_account["colour"], colour_enabled)
         trailing.append(f"{indent}{label}")
     if "pinned" in flags:
-        marker = colourize(f"\u2514\u2500 PINNED", "magenta", colour_enabled)
+        marker = colourize(f"\u2514\u2500 PINNED", PINNED_COLOUR, colour_enabled)
         trailing.append(f"{indent}{marker}")
     if next_action and next_action.strip():
         trailing.append(f"{indent}\u2514\u2500 next: {next_action.strip()}")
@@ -186,7 +191,8 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
                 base_dir, folder, name, exclude=exclude,
                 max_subject=max_subject, next_action=na,
                 accounts=accounts, colour_enabled=enabled, flags=flags)
-            body = colourize(body, colour_for_days(elapsed, green_max, yellow_max), enabled)
+            body_colour = PINNED_COLOUR if pinned else colour_for_days(elapsed, green_max, yellow_max)
+            body = colourize(body, body_colour, enabled)
             block = "\n".join([body] + trailing)
             entries.append((pinned, date_dt, block))
         except Exception as e:
