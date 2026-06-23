@@ -188,6 +188,38 @@ def get_email_date(message):
     return datetime.now(timezone.utc)
 
 
+def get_email_correspondents(message):
+    """
+    Return a de-duplicated, order-preserving list of correspondent display
+    names/addresses drawn from the From, To, and Cc headers (decoded).
+
+    Example:
+        get_email_correspondents(msg)
+        # From: "Jane Doe <jane@x.com>", To: "bob@y.com"
+        # -> ["Jane Doe <jane@x.com>", "bob@y.com"]
+    """
+    from email.header import decode_header, make_header
+    from email.utils import getaddresses
+
+    raw_values = []
+    for header in ("From", "To", "Cc"):
+        raw_values.extend(message.get_all(header, []))
+
+    people = []
+    for name, addr in getaddresses(raw_values):
+        try:
+            name = str(make_header(decode_header(name))).strip()
+        except Exception:
+            name = name.strip()
+        if name and addr:
+            entry = f"{name} <{addr}>"
+        else:
+            entry = name or addr
+        if entry and entry not in people:
+            people.append(entry)
+    return people
+
+
 # --------------------------------------------------------------------------- #
 # Filename generation
 # --------------------------------------------------------------------------- #
@@ -320,11 +352,18 @@ def colourize(text, colour_name, enabled=True):
 
 def file_report_line(base_dir, folder, filename, today=None):
     """
-    Build a single report line: "<date> (<elapsed>d)   <subject>".
+    Build a multi-line report block for one file:
+        <date> (<elapsed>d)   <subject>
+                              <filename>
+                              <correspondent1>; <correspondent2>; ...
+
+    Returns (block_text, date_dt, elapsed).
 
     Example:
-        file_report_line("/home/me/gtd", "02-triage", "x.eml")
-        # -> "2026-06-03 (20d)   Meeting Minutes Project Pudding"
+        file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml")
+        # -> ("2026-06-03  (20d)   Meeting Minutes\\n"
+        #     "                    2026-06-03-x.eml\\n"
+        #     "                    Jane <jane@x.com>; bob@y.com", date_dt, 20)
     """
     if today is None:
         today = datetime.now(timezone.utc)
@@ -333,12 +372,21 @@ def file_report_line(base_dir, folder, filename, today=None):
     message = read_eml_message(path)
     date_dt = get_email_date(message)
     subject = get_email_subject(message) or "(no subject)"
+    correspondents = get_email_correspondents(message)
 
     date_str = date_dt.strftime("%Y-%m-%d")
     elapsed = (today.date() - date_dt.date()).days
     elapsed_str = f"({elapsed}d)".rjust(6)  # right-align up to "(9999d)"-ish
 
-    return f"{date_str} {elapsed_str}   {subject}", date_dt, elapsed
+    indent = " " * len(f"{date_str} {elapsed_str}   ")
+    people = "; ".join(correspondents) if correspondents else "(no correspondents)"
+
+    block = (
+        f"{date_str} {elapsed_str}   {subject}\n"
+        f"{indent}{filename}\n"
+        f"{indent}{people}"
+    )
+    return block, date_dt, elapsed
 
 
 def report_folder(base_dir, folder, colour_cfg, limit=None):

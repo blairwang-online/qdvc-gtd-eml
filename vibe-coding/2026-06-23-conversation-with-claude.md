@@ -117,3 +117,30 @@ max_filename_chars = 60
 And whenever you're ready, let me know what the third bullet was meant to be.
 
 Attached: gtd.py _(as of this commit)_
+
+## 7. User request
+
+Two more changes:
+
+* Display list of correspondents for each EML file, based on email headers
+* Display filename of EML file
+
+## 8. LLM response
+
+For correspondents I'll pull From / To / Cc from the headers (decoded). Let me look at the EML parsing helpers and the report line.Now let me add a correspondents helper after `get_email_date`. I'll move the `decode_header` import to the top while I'm at it.Now update `file_report_line` to add the filename and a correspondents sub-line. Let me view it as it stands now.I'll build a multi-line block: the main date/subject line, then an indented filename line and an indented correspondents line. The whole block gets coloured together.`colourize` wraps the whole block (including newlines) — ANSI codes at the start and a reset at the end work fine across line breaks. The variable in `report_folder` is named `line` but now holds a block; that's harmless. Test:Both working. Each entry now shows three aligned lines: the date/elapsed/subject line, the filename, and the correspondents (From + To + Cc, de-duplicated, MIME-decoded — note `Zöe` decoded correctly). Files with no address headers show `(no correspondents)`.Done. Summary:
+
+**Correspondents** — New `get_email_correspondents()` collects From, To, and Cc, decodes any MIME-encoded names, formats each as `Name <addr>` (or just whichever part exists), and de-duplicates while preserving order.
+
+**Filename + correspondents in the report** — `file_report_line` now returns a three-line block per file: the existing date/elapsed/subject line, then the `.eml` filename, then the semicolon-joined correspondents, both indented to align under the subject. The whole block is colour-coded as a unit by elapsed days.
+
+Example output:
+
+```
+2026-06-03  (20d)   Meeting Minutes - Project Pudding
+                    2026-06-03-meeting-minutes-project-pudding.eml
+                    Jane Doe <jane@example.com>; Bob Smith <bob@example.com>; carol@example.com; Zöe <zoe@example.com>
+```
+
+If correspondent lists get long, one option would be to cap them (e.g. "first 3 + N more"); easy to add if you'd like it.
+
+Attached: gtd.py _(as of this commit)_
