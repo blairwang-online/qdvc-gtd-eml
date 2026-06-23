@@ -1,31 +1,56 @@
 #compdef gtd
 #
-# zsh completion for the `gtd` alias (alias gtd="python3 /path/to/gtd.py").
+# zsh completion for the `gtd` command.
 #
-# INSTALL
-#   1. Save this file somewhere on your $fpath, named `_gtd`, e.g.:
-#          mkdir -p ~/.zsh/completions
-#          cp _gtd ~/.zsh/completions/_gtd
-#   2. Ensure that directory is on $fpath and compinit runs, in ~/.zshrc:
+# IMPORTANT — alias vs function:
+#   If `gtd` is an *alias*, zsh expands it before completing, so this file is
+#   ignored unless you also `setopt complete_aliases`. The robust fix is to
+#   define `gtd` as a FUNCTION instead, which completes as `gtd` directly:
+#       gtd() { python3 /path/to/gtd.py "$@" }
+#   (Under oh-my-zsh, put that in ~/.zshrc; remove any `alias gtd=...`.)
+#
+# INSTALL (oh-my-zsh)
+#   1. Save this file as `_gtd` in oh-my-zsh's custom completions dir:
+#          mkdir -p ~/.oh-my-zsh/custom/completions
+#          cp _gtd ~/.oh-my-zsh/custom/completions/_gtd
+#   2. Clear the completion cache and restart the shell:
+#          rm -f ~/.zcompdump* && exec zsh
+#
+# INSTALL (plain zsh, no framework)
+#   1. Put this file as `_gtd` in a dir on $fpath, e.g. ~/.zsh/completions/_gtd
+#   2. In ~/.zshrc, BEFORE compinit runs:
 #          fpath=(~/.zsh/completions $fpath)
 #          autoload -Uz compinit && compinit
-#   3. Make sure the alias is defined (also in ~/.zshrc):
-#          alias gtd="python3 /path/to/gtd.py"
-#   4. Restart the shell (or `exec zsh`).
 #
-# After that, `gtd me<TAB>` completes to `gtd metadata`, and arguments
+# After install, `gtd me<TAB>` completes to `gtd metadata`, and arguments
 # (subcommands, .eml filenames, field names, destinations) complete too.
-#
-# NOTE: completion keys off the command word `gtd`, which is the alias name —
-# that's why the first line is `#compdef gtd` and not `gtd.py`.
+# Verify it loaded:  print ${_comps[gtd]}   # should print: _gtd
 
 # Locate config.yml so we can offer real .eml filenames. We look next to the
 # gtd.py that the alias points at; fall back to the current directory.
 _gtd_working_directory() {
     local script_dir cfg wd
     # Extract the gtd.py path from the alias definition, if present.
-    local alias_def="${aliases[gtd]}"
-    local py_path="${${(z)alias_def}[-1]}"   # last word of the alias value
+    # Find the gtd.py path the `gtd` command points at. Works whether `gtd` is
+    # a shell function (recommended) or an alias, and falls back to $PWD.
+    local py_path="" tok
+    if (( $+functions[gtd] )); then
+        # Scan the function body for the token ending in gtd.py.
+        for tok in ${(z)functions[gtd]}; do
+            if [[ "$tok" == *gtd.py ]]; then
+                py_path="$tok"
+                break
+            fi
+        done
+    fi
+    if [[ -z "$py_path" && -n "${aliases[gtd]}" ]]; then
+        for tok in ${(z)${aliases[gtd]}}; do
+            [[ "$tok" == *gtd.py ]] && py_path="$tok" && break
+        done
+        # Fall back to the last word if no *gtd.py token was found.
+        [[ -z "$py_path" ]] && py_path="${${(z)${aliases[gtd]}}[-1]}"
+    fi
+
     if [[ -n "$py_path" && -f "$py_path" ]]; then
         script_dir="${py_path:h}"
     else
