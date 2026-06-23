@@ -423,3 +423,61 @@ Your example used `colour: blue`, which I added along with magenta and cyan. The
 If an email involves two of your accounts (e.g. one in To, one in Cc), only the first match is shown, preferring the receiving headers. If you'd rather see all matched accounts, that's a small change.
 
 Attached: gtd.py _(as of this commit)_
+
+## 25. User request
+
+It seems that gtd.py and gtd_email_preview.py are getting kind of long. Refactor them each into multiple files. All the new Python files to be created will live in a folder called `modules` (unless you can suggest a more appropriate name).
+
+Some suggestions:
+
+* Functionality that is required by both files (esp. related to reading email headers/body, decoding base64, etc.) should be refactored into a new file that can be called by both files.
+* The process of renaming according to a naming convention should probably be in its own file, I guess.
+
+## 26. LLM response
+
+Good time to do this. Let me see the current state of both files and their line counts.I'll plan a clean package layout. I'll name the folder `gtd_modules` (clearer than generic `modules`, and a valid Python package name). Proposed split:
+
+- `gtd_modules/email_utils.py` — shared: read message, headers (subject, date, correspondents, own-account match), body text + base64/QP decoding, message-ref detection. Used by both scripts.
+- `gtd_modules/config.py` — config.yml loading, DEFAULTS, COLOURS, folder constants, account normalisation.
+- `gtd_modules/naming.py` — slugify, build_base_filename, unique_filename.
+- `gtd_modules/ingest.py` — ingest_input_files.
+- `gtd_modules/metadata.py` — metadata headers, load/sync.
+- `gtd_modules/report.py` — colour/truncate/report functions.
+- `gtd_modules/fs.py` — ensure_folders, list_eml_files, all_existing_filenames.
+- `gtd.py` — thin entrypoint (`main`).
+- `gtd_email_preview.py` — thin entrypoint using shared email_utils.
+
+Let me read the full current gtd.py to copy logic accurately.Now I have the full picture. Let me also read the preview script to see what it duplicates.Note the preview still references the old `gtd.py.ini` — that's a latent bug from the YAML migration. The refactor will fix it by sharing the config module. 
+
+I'll name the package `gtd_modules`. Let me build the files. Starting with the package init and config.Now the shared email utilities. I'll consolidate the duplicated helpers from both files: `read_eml_message`, `decode_mime`, subject/date, correspondents, own-account match, body text (with the more complete attachment-aware logic), attachments, HTML strip, formatted addresses/date for preview, and message-ref. Plus `find_eml` (filesystem search) belongs with fs but is used by preview — I'll put `find_eml` in fs.Now the filesystem module (folders, listing, find_eml).Now naming.py:Now ingest.py:Now metadata.py:Now report.py:Now the preview rendering module:Now rewrite the two top-level scripts as thin entrypoints.Now a full end-to-end test of both tools against the new package layout.Wait — the report shows the full untruncated subject even though `max_subject_chars: 60` is set. The subject `Project Pudding status update and next steps for the team` is 56 chars, under 60, so that's correct (not truncated). Let me verify truncation still fires and test the colour path and a couple of edge cases, plus confirm the package imports cleanly.All correct: imports clean, truncation fires (`…` at 30 chars), body coloured red with the colour reset before the yellow `[Work account]` label. The earlier latent bug (preview reading the old `gtd.py.ini`) is also fixed since both tools now share `gtd_modules.config`.
+
+Let me confirm the broken-pipe handling still works and present the files.Everything works. Let me show the final structure and present the files.Done. I split everything into a `gtd_modules` package (I went with that over plain `modules` since it's a clearer, collision-resistant package name).
+
+**Layout:**
+
+```
+gtd.py                    (65 lines)  — entrypoint: orchestrates a run
+gtd_email_preview.py      (59 lines)  — entrypoint: previews one email
+gtd_modules/
+    __init__.py                       — package overview
+    config.py                         — config.yml loading, DEFAULTS, COLOURS, folder/metadata constants
+    emailutil.py                      — SHARED: read messages, decode headers/body (base64/QP), attachments, account match, message-ref
+    fs.py                             — folders, listing, find_eml
+    naming.py                         — slugify + filename-convention builders
+    ingest.py                         — rename/move 01-input → 02-triage
+    metadata.py                       — metadata.csv load/sync
+    report.py                         — colourised status report
+    preview.py                        — markdown-friendly single-message render
+```
+
+Both your suggestions are reflected: shared email/header/body/base64 logic lives in `emailutil.py` (used by both tools), and the naming-convention logic is isolated in `naming.py`.
+
+A few things worth noting:
+
+The two top-level scripts are now thin (~60 lines each), down from 744 and 318. The previously duplicated email helpers existed in *both* files; they're now in one place, and `get_email_body_text` gained a `render_html` flag so the preview gets HTML-to-text conversion while the ref-scanner gets the raw text it needs.
+
+This also fixed a latent bug: `gtd_email_preview.py` was still reading the old `gtd.py.ini` from before the YAML migration. Both tools now share `gtd_modules.config`, so they always read the same `config.yml`.
+
+To run them, keep `config.yml` and the `gtd_modules` folder alongside `gtd.py` / `gtd_email_preview.py`. The package is imported by name, so the scripts need to be launched from their own directory (or that directory on `PYTHONPATH`) — the usual setup. If you'd rather be able to run them from anywhere regardless of working directory, I can add a small `sys.path` bootstrap to each entrypoint.
+
+Attached: all files mentioned above _(as of this commit)_
