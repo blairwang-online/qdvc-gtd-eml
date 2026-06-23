@@ -15,20 +15,39 @@ Run the script to:
     3. Ensure metadata.csv exists & is in sync with current .eml files.
 """
 
+import configparser
 import csv
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from email import message_from_binary_file
 from email.utils import parsedate_to_datetime
 
 # --------------------------------------------------------------------------- #
-# Configuration constants
+# Configuration
 # --------------------------------------------------------------------------- #
-GTD_ROOT_DIR = "gtd-eml"  # folder (relative to this script) holding the 5 folders + metadata.csv
-BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), GTD_ROOT_DIR)
-MAX_FILENAME_CHARS = 60   # max length of generated filename (incl. ".eml")
-ARCHIVE_REPORT_N = 10     # number of most recent archive files to report
+# The INI file lives alongside this script and is named "<script>.ini".
+INI_FILE = os.path.abspath(__file__) + ".ini"  # e.g. /path/gtd.py.ini
+
+# Defaults — overridden by [settings] in gtd.py.ini if present there.
+DEFAULTS = {
+    "working_directory": os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "gtd-eml"
+    ),                         # root holding the 5 folders + metadata.csv
+    "max_filename_chars": 60,  # max length of generated filename (incl. ".eml")
+    "archive_report_n": 10,    # number of most recent archive files to report
+    "green_max_days": 2,       # days < this -> green
+    "yellow_max_days": 14,     # days < this (and >= green) -> yellow; else red
+}
+
+# ANSI colour codes used for report lines.
+COLOURS = {
+    "green": "\033[32m",
+    "yellow": "\033[33m",
+    "red": "\033[31m",
+    "reset": "\033[0m",
+}
 
 INPUT_DIR = "01-input"
 TRIAGE_DIR = "02-triage"
@@ -39,6 +58,35 @@ ARCHIVE_DIR = "05-archive"
 ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, REFERENCE_DIR, ARCHIVE_DIR]
 METADATA_FILE = "metadata.csv"
 METADATA_HEADERS = ["eml_filename", "general_notes", "project"]
+
+
+# --------------------------------------------------------------------------- #
+# Config loading
+# --------------------------------------------------------------------------- #
+def load_config(ini_path=INI_FILE):
+    """
+    Load settings from a [settings] section in the INI file, falling back to
+    DEFAULTS for any key not present. Integer keys are coerced to int.
+
+    Example (gtd.py.ini contains working_directory = "/data" and green_max_days = 1):
+        load_config("/path/gtd.py.ini")
+        # -> {"working_directory": "/data", "max_filename_chars": 60,
+        #     "archive_report_n": 10, "green_max_days": 1, "yellow_max_days": 14}
+    """
+    cfg = dict(DEFAULTS)
+    parser = configparser.ConfigParser()
+    if os.path.isfile(ini_path):
+        parser.read(ini_path, encoding="utf-8")
+        if parser.has_section("settings"):
+            section = parser["settings"]
+            for key in cfg:
+                if key in section:
+                    raw = section[key].strip().strip('"').strip("'")
+                    if isinstance(DEFAULTS[key], int):
+                        cfg[key] = int(raw)
+                    else:
+                        cfg[key] = raw
+    return cfg
 
 
 # --------------------------------------------------------------------------- #
@@ -239,6 +287,37 @@ def ingest_input_files(base_dir, max_chars):
 # --------------------------------------------------------------------------- #
 # Reporting
 # --------------------------------------------------------------------------- #
+def colour_for_days(elapsed, green_max, yellow_max):
+    """
+    Return the ANSI colour name for a given elapsed-day count:
+    green if days < green_max, else yellow if days < yellow_max, else red.
+
+    Example:
+        colour_for_days(1, 2, 14)   # -> "green"
+        colour_for_days(5, 2, 14)   # -> "yellow"
+        colour_for_days(30, 2, 14)  # -> "red"
+    """
+    if elapsed < green_max:
+        return "green"
+    if elapsed < yellow_max:
+        return "yellow"
+    return "red"
+
+
+def colourize(text, colour_name, enabled=True):
+    """
+    Wrap text in ANSI colour codes for the named colour. If disabled (e.g. when
+    output is not a TTY), return the text unchanged.
+
+    Example:
+        colourize("hi", "green")        # -> "\\033[32mhi\\033[0m"
+        colourize("hi", "green", False) # -> "hi"
+    """
+    if not enabled or colour_name not in COLOURS:
+        return text
+    return f"{COLOURS[colour_name]}{text}{COLOURS['reset']}"
+
+
 def file_report_line(base_dir, folder, filename, today=None):
     """
     Build a single report line: "<date> (<elapsed>d)   <subject>".
@@ -259,23 +338,26 @@ def file_report_line(base_dir, folder, filename, today=None):
     elapsed = (today.date() - date_dt.date()).days
     elapsed_str = f"({elapsed}d)".rjust(6)  # right-align up to "(9999d)"-ish
 
-    return f"{date_str} {elapsed_str}   {subject}", date_dt
+    return f"{date_str} {elapsed_str}   {subject}", date_dt, elapsed
 
 
-def report_folder(base_dir, folder, limit=None):
+def report_folder(base_dir, folder, colour_cfg, limit=None):
     """
-    Print a report block for a folder. If limit is set, show only the most
-    recent `limit` files (by email date). Returns nothing (prints).
+    Print a report block for a folder, colour-coding each line by elapsed days.
+    If limit is set, show only the most recent `limit` files (by email date).
+    `colour_cfg` is (green_max, yellow_max, enabled).
 
     Example:
-        report_folder("/home/me/gtd", "05-archive", limit=10)
-        # -> prints up to 10 most-recent archive lines
+        report_folder("/home/me/gtd", "05-archive", (2, 14, True), limit=10)
+        # -> prints up to 10 most-recent, colour-coded archive lines
     """
+    green_max, yellow_max, enabled = colour_cfg
     files = list_eml_files(base_dir, folder)
     lines = []
     for name in files:
         try:
-            line, date_dt = file_report_line(base_dir, folder, name)
+            line, date_dt, elapsed = file_report_line(base_dir, folder, name)
+            line = colourize(line, colour_for_days(elapsed, green_max, yellow_max), enabled)
             lines.append((date_dt, line))
         except Exception as e:
             lines.append((datetime.min.replace(tzinfo=timezone.utc),
@@ -292,18 +374,18 @@ def report_folder(base_dir, folder, limit=None):
         print(line)
 
 
-def print_report(base_dir, archive_n):
+def print_report(base_dir, archive_n, colour_cfg):
     """
     Print the full GTD status report across the relevant folders.
 
     Example:
-        print_report("/home/me/gtd", 10)
+        print_report("/home/me/gtd", 10, (2, 14, True))
         # -> prints triage, actionable, reference, last-10 archive blocks
     """
-    report_folder(base_dir, TRIAGE_DIR)
-    report_folder(base_dir, ACTIONABLE_DIR)
-    report_folder(base_dir, REFERENCE_DIR)
-    report_folder(base_dir, ARCHIVE_DIR, limit=archive_n)
+    report_folder(base_dir, TRIAGE_DIR, colour_cfg)
+    report_folder(base_dir, ACTIONABLE_DIR, colour_cfg)
+    report_folder(base_dir, REFERENCE_DIR, colour_cfg)
+    report_folder(base_dir, ARCHIVE_DIR, colour_cfg, limit=archive_n)
 
 
 # --------------------------------------------------------------------------- #
@@ -348,14 +430,19 @@ def sync_metadata(base_dir):
 # --------------------------------------------------------------------------- #
 def main():
     """
-    Orchestrate: ensure folders -> ingest input -> sync metadata -> report.
+    Orchestrate: load config -> ensure folders -> ingest -> sync metadata -> report.
 
     Example:
         main()  # run as `python gtd.py`
     """
-    ensure_folders(BASE_DIR)
+    cfg = load_config()
+    base_dir = cfg["working_directory"]
+    colour_enabled = sys.stdout.isatty()
+    colour_cfg = (cfg["green_max_days"], cfg["yellow_max_days"], colour_enabled)
 
-    moved = ingest_input_files(BASE_DIR, MAX_FILENAME_CHARS)
+    ensure_folders(base_dir)
+
+    moved = ingest_input_files(base_dir, cfg["max_filename_chars"])
     if moved:
         print("Ingested from 01-input -> 02-triage:")
         for old_name, new_name in moved:
@@ -363,8 +450,8 @@ def main():
     else:
         print("No new files in 01-input.")
 
-    sync_metadata(BASE_DIR)
-    print_report(BASE_DIR, ARCHIVE_REPORT_N)
+    sync_metadata(base_dir)
+    print_report(base_dir, cfg["archive_report_n"], colour_cfg)
 
 
 if __name__ == "__main__":

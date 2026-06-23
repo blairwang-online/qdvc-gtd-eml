@@ -83,3 +83,37 @@ BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), GTD_ROOT_DIR
 Change `GTD_ROOT_DIR` to relocate the whole structure. The directory is created automatically on first run.
 
 Attached: gtd.py _(as of this commit)_
+
+## 5. User request
+
+A few updates requested:
+
+* Instead of GTD_ROOT_DIR and BASE_DIR set manually in the file, obtain them from a file called gtd.py.ini - working_directory = "/home/james/gtd-eml-data"
+* Colour-code the outputs: green if days < 2, else yellow if days < 14, else red. Defaults for these numbers should be set in the Python file, but they should be overwritten by settings in gtd.py.ini if present there.
+
+## 6. LLM response
+
+It looks like your message got cut off after the second bullet — there's a dangling third `*` with nothing after it. Let me implement the two updates you've given, and you can tell me the third when ready.
+
+Let me check the current constants and imports.I'll restructure so config comes from `gtd.py.ini`. Let me view the functions that use `BASE_DIR`/`ARCHIVE_REPORT_N`/`MAX_FILENAME_CHARS` and the report/main functions.Now I have what I need. Let me make the changes. First, replace the constants block with defaults + an INI loader.Now add the config-loading function after the constants block:Now add a colour helper and thread the colour thresholds through reporting. First the colour function:Wait — there was a pre-existing "Reporting" section header above `report_folder`. Let me check I haven't created a duplicate, and look at the file_report_line return signature (it returns elapsed implicitly via date). I need elapsed available for colouring. Let me view the current reporting region.There was a pre-existing "Reporting" header that I displaced — now `file_report_line`'s old header is gone (good, no duplicate). Now I'll update `file_report_line` to also return elapsed, then colour the line in `report_folder`.Now update `print_report` and `main`:Also update the module docstring reference to BASE_DIR. Now test, including a sample INI overriding the thresholds and working directory.Everything works. Config loads from `gtd.py.ini` with defaults as fallback; `working_directory` override is honoured; and with thresholds `green_max_days=5`, `yellow_max_days=25`, the 0-day item is green (`^[[32m`) and the 20-day item is yellow (`^[[33m`), correctly wrapped with reset codes.
+
+One design note worth flagging: colour is auto-disabled when output isn't a terminal (`sys.stdout.isatty()`), so piping to a file or another program won't embed ANSI codes. That's standard CLI behaviour, but if you'd rather always emit colour, say so and I'll add a `force_colour` setting.Done. Summary of changes:
+
+**Config from `gtd.py.ini`** — A new `load_config()` reads a `[settings]` section from `gtd.py.ini` (located next to the script, derived as `__file__ + ".ini"`). Anything absent falls back to the `DEFAULTS` dict in the Python file. Values quoted in the INI (e.g. `working_directory = "/home/james/gtd-eml-data"`) are handled. `working_directory` replaces the old `GTD_ROOT_DIR`/`BASE_DIR` constants and flows through every function.
+
+**Colour-coding** — `colour_for_days()` picks green / yellow / red, and `colourize()` applies ANSI codes. Thresholds default to `green_max_days = 2` and `yellow_max_days = 14` in the file, overridable in the INI. Rule: green if `days < green_max_days`, else yellow if `days < yellow_max_days`, else red.
+
+Example `gtd.py.ini`:
+
+```ini
+[settings]
+working_directory = "/home/james/gtd-eml-data"
+green_max_days = 2
+yellow_max_days = 14
+archive_report_n = 10
+max_filename_chars = 60
+```
+
+And whenever you're ready, let me know what the third bullet was meant to be.
+
+Attached: gtd.py _(as of this commit)_
