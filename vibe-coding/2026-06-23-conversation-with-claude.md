@@ -339,3 +339,24 @@ The ingestion log now also shows the ref inline, e.g. `a.eml -> 2026-06-03-proje
 One small thing to flag: if you ever set `max_filename_chars` very low (lower than date + ref together), the script keeps the date and ref and drops the subject entirely rather than corrupting the ref. That seemed like the safer trade-off, but let me know if you'd prefer it handle that edge differently.
 
 Attached: gtd.py _(as of this commit)_
+
+## 21. User request
+
+Update gtd.py : if there are more than 3 correspondents to be listed, just put "+ N more", e.g., if there are 10 to be listed, then just list the first 3 and then "+ 7 more"
+
+## 22. LLM response
+
+I aligned the `+ N more` line under the names (after the `With: ` prefix width) so it reads as a continuation. Let me test with 10, exactly 3, and 4 correspondents.All three cases correct: 10 correspondents show the first 3 plus `+ 7 more`, 4 show 3 plus `+ 1 more`, and exactly 3 show all with no extra line.Done. When there are more than 3 correspondents, only the first 3 are listed, followed by a `+ N more` line aligned under the names:
+
+```
+2026-06-03  (20d)   ten
+                    2026-06-03-ten.eml
+                    With: a@example.com
+                    With: p0@example.com
+                    With: p1@example.com
+                          + 7 more
+```
+
+Exactly 3 or fewer are all shown with no extra line. The cap is hardcoded at 3 as you specified; if you'd ever want it configurable via `gtd.py.ini`, that's an easy addition.
+
+Attached: gtd.py _(as of this commit)_

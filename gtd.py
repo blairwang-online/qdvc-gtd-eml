@@ -506,7 +506,11 @@ def file_report_line(base_dir, folder, filename, exclude=None,
     indent = " " * len(f"{date_str} {elapsed_str}   ")
     rows = [f"{date_str} {elapsed_str}   {subject}", f"{indent}{filename}"]
     if correspondents:
-        rows.extend(f"{indent}With: {c}" for c in correspondents)
+        shown = correspondents[:3]
+        rows.extend(f"{indent}With: {c}" for c in shown)
+        remaining = len(correspondents) - len(shown)
+        if remaining > 0:
+            rows.append(f"{indent}      + {remaining} more")
     else:
         rows.append(f"{indent}With: (no correspondents)")
 
