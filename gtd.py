@@ -40,6 +40,7 @@ DEFAULTS = {
     "green_max_days": 2,       # days < this -> green
     "yellow_max_days": 14,     # days < this (and >= green) -> yellow; else red
     "exclude_correspondents": [],  # email addresses to omit from listings
+    "max_subject_chars": 72,   # truncate displayed subjects longer than this
 }
 
 # ANSI colour codes used for report lines.
@@ -58,7 +59,7 @@ ARCHIVE_DIR = "05-archive"
 
 ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, REFERENCE_DIR, ARCHIVE_DIR]
 METADATA_FILE = "metadata.csv"
-METADATA_HEADERS = ["eml_filename", "general_notes", "project"]
+METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action"]
 
 
 # --------------------------------------------------------------------------- #
@@ -367,24 +368,41 @@ def colourize(text, colour_name, enabled=True):
     return f"{COLOURS[colour_name]}{text}{COLOURS['reset']}"
 
 
-def file_report_line(base_dir, folder, filename, exclude=None, today=None):
+def truncate(text, max_chars):
+    """
+    Truncate text to max_chars, appending a single-character ellipsis (…) if
+    cut. A non-positive max_chars disables truncation.
+
+    Example:
+        truncate("a very long subject line", 10)  # -> "a very lo…"
+        truncate("short", 10)                      # -> "short"
+    """
+    if max_chars and max_chars > 0 and len(text) > max_chars:
+        return text[: max_chars - 1].rstrip() + "\u2026"
+    return text
+
+
+def file_report_line(base_dir, folder, filename, exclude=None,
+                     max_subject=0, next_action=None, today=None):
     """
     Build a multi-line report block for one file:
-        <date> (<elapsed>d)   <subject>
+        <date> (<elapsed>d)   <subject (truncated)>
                               <filename>
                               <correspondent1>
                               <correspondent2>
-                              ...
+                              └─ next: <next_action>     (only if provided)
 
-    Correspondents in `exclude` (by email address) are omitted.
+    `max_subject` truncates the subject (0 = no limit). `next_action`, when a
+    non-empty string, is shown on a tree-style branch line to stand out.
     Returns (block_text, date_dt, elapsed).
 
     Example:
-        file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml")
+        file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml",
+                         next_action="Reply to Jane")
         # -> ("2026-06-03  (20d)   Meeting Minutes\\n"
         #     "                    2026-06-03-x.eml\\n"
         #     "                    Jane <jane@x.com>\\n"
-        #     "                    bob@y.com", date_dt, 20)
+        #     "                    └─ next: Reply to Jane", date_dt, 20)
     """
     if today is None:
         today = datetime.now(timezone.utc)
@@ -393,6 +411,7 @@ def file_report_line(base_dir, folder, filename, exclude=None, today=None):
     message = read_eml_message(path)
     date_dt = get_email_date(message)
     subject = get_email_subject(message) or "(no subject)"
+    subject = truncate(subject, max_subject)
     correspondents = get_email_correspondents(message, exclude=exclude)
 
     date_str = date_dt.strftime("%Y-%m-%d")
@@ -405,28 +424,37 @@ def file_report_line(base_dir, folder, filename, exclude=None, today=None):
         rows.extend(f"{indent}{c}" for c in correspondents)
     else:
         rows.append(f"{indent}(no correspondents)")
+    if next_action and next_action.strip():
+        rows.append(f"{indent}\u2514\u2500 next: {next_action.strip()}")
 
     return "\n".join(rows), date_dt, elapsed
 
 
-def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None):
+def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
+                  max_subject=0, metadata=None, show_next_action=False):
     """
     Print a report block for a folder, colour-coding each entry by elapsed days.
     If limit is set, show only the most recent `limit` files (by email date).
     `colour_cfg` is (green_max, yellow_max, enabled); `exclude` is a list of
-    correspondent addresses to omit.
+    correspondent addresses to omit; `max_subject` truncates subjects;
+    `metadata` is the dict from load_metadata; `show_next_action` toggles the
+    next_action branch line (off for the archive).
 
     Example:
-        report_folder("/home/me/gtd", "05-archive", (2, 14, True),
-                      exclude=["me@x.com"], limit=10)
-        # -> prints up to 10 most-recent, colour-coded archive entries
+        report_folder("/home/me/gtd", "03-actionable", (2, 14, True),
+                      metadata=meta, show_next_action=True)
+        # -> prints colour-coded actionable entries with next-action lines
     """
     green_max, yellow_max, enabled = colour_cfg
+    metadata = metadata or {}
     files = list_eml_files(base_dir, folder)
     lines = []
     for name in files:
         try:
-            block, date_dt, elapsed = file_report_line(base_dir, folder, name, exclude=exclude)
+            na = metadata.get(name, {}).get("next_action", "") if show_next_action else None
+            block, date_dt, elapsed = file_report_line(
+                base_dir, folder, name, exclude=exclude,
+                max_subject=max_subject, next_action=na)
             block = colourize(block, colour_for_days(elapsed, green_max, yellow_max), enabled)
             lines.append((date_dt, block))
         except Exception as e:
@@ -444,28 +472,55 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None):
         print(block)
 
 
-def print_report(base_dir, archive_n, colour_cfg, exclude=None):
+def print_report(base_dir, archive_n, colour_cfg, exclude=None,
+                 max_subject=0, metadata=None):
     """
-    Print the full GTD status report across the relevant folders.
+    Print the full GTD status report across the relevant folders. next_action
+    lines are shown for triage/actionable/reference but NOT for the archive.
 
     Example:
-        print_report("/home/me/gtd", 10, (2, 14, True), exclude=["me@x.com"])
+        print_report("/home/me/gtd", 10, (2, 14, True), exclude=["me@x.com"],
+                     max_subject=72, metadata=meta)
         # -> prints triage, actionable, reference, last-10 archive blocks
     """
-    report_folder(base_dir, TRIAGE_DIR, colour_cfg, exclude=exclude)
-    report_folder(base_dir, ACTIONABLE_DIR, colour_cfg, exclude=exclude)
-    report_folder(base_dir, REFERENCE_DIR, colour_cfg, exclude=exclude)
-    report_folder(base_dir, ARCHIVE_DIR, colour_cfg, exclude=exclude, limit=archive_n)
+    common = dict(exclude=exclude, max_subject=max_subject, metadata=metadata)
+    report_folder(base_dir, TRIAGE_DIR, colour_cfg, show_next_action=True, **common)
+    report_folder(base_dir, ACTIONABLE_DIR, colour_cfg, show_next_action=True, **common)
+    report_folder(base_dir, REFERENCE_DIR, colour_cfg, show_next_action=True, **common)
+    report_folder(base_dir, ARCHIVE_DIR, colour_cfg, show_next_action=False,
+                  limit=archive_n, **common)
 
 
 # --------------------------------------------------------------------------- #
 # Metadata
 # --------------------------------------------------------------------------- #
+def load_metadata(base_dir):
+    """
+    Read metadata.csv into a dict keyed by eml_filename. Returns {} if the
+    file doesn't exist.
+
+    Example:
+        load_metadata("/home/me/gtd")
+        # -> {"2026-06-03-x.eml": {"general_notes": "", "project": "Pudding",
+        #                          "next_action": "Reply to Jane"}}
+    """
+    meta_path = os.path.join(base_dir, METADATA_FILE)
+    rows = {}
+    if os.path.isfile(meta_path):
+        with open(meta_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                key = row.get("eml_filename", "")
+                if key:
+                    rows[key] = {h: row.get(h, "") for h in METADATA_HEADERS if h != "eml_filename"}
+    return rows
+
+
 def sync_metadata(base_dir):
     """
     Ensure metadata.csv exists at the root and has one row per current .eml
-    file (across all folders). Preserves existing notes/project values; adds
-    blank rows for new files; drops rows for files that no longer exist.
+    file (across all folders). Preserves existing column values (notes,
+    project, next_action); adds blank rows for new files; drops rows for files
+    that no longer exist.
 
     Example:
         sync_metadata("/home/me/gtd")
@@ -473,26 +528,17 @@ def sync_metadata(base_dir):
     """
     meta_path = os.path.join(base_dir, METADATA_FILE)
     current = all_existing_filenames(base_dir)
-
-    existing_rows = {}
-    if os.path.isfile(meta_path):
-        with open(meta_path, newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                existing_rows[row.get("eml_filename", "")] = {
-                    "general_notes": row.get("general_notes", ""),
-                    "project": row.get("project", ""),
-                }
+    existing_rows = load_metadata(base_dir)
+    blank = {h: "" for h in METADATA_HEADERS if h != "eml_filename"}
 
     with open(meta_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=METADATA_HEADERS)
         writer.writeheader()
         for name in sorted(current):
-            prev = existing_rows.get(name, {"general_notes": "", "project": ""})
-            writer.writerow({
-                "eml_filename": name,
-                "general_notes": prev["general_notes"],
-                "project": prev["project"],
-            })
+            prev = existing_rows.get(name, blank)
+            row = {"eml_filename": name}
+            row.update({h: prev.get(h, "") for h in METADATA_HEADERS if h != "eml_filename"})
+            writer.writerow(row)
 
 
 # --------------------------------------------------------------------------- #
@@ -521,8 +567,11 @@ def main():
         print("No new files in 01-input.")
 
     sync_metadata(base_dir)
+    metadata = load_metadata(base_dir)
     print_report(base_dir, cfg["archive_report_n"], colour_cfg,
-                 exclude=cfg["exclude_correspondents"])
+                 exclude=cfg["exclude_correspondents"],
+                 max_subject=cfg["max_subject_chars"],
+                 metadata=metadata)
 
 
 if __name__ == "__main__":

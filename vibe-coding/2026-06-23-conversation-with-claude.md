@@ -181,3 +181,36 @@ exclude_correspondents =
 ```
 
 Attached: gtd.py _(as of this commit)_
+
+## 11. User request
+
+Please truncate subject lines if they get too long to display (I noticed it seemed to start wrapping, even when I make my Terminal window much wider than needed).
+
+Also, in metadata.csv, I would like to have a new field called next_action. This should be displayed in the output for every segment of the report EXCEPT 05-archive. It should be displayed in such a manner that looks visually different - normally I would say italics, but as this is a terminal, maybe use indenting or unicode symbols like those from the Linux `tree` command.
+
+## 12. LLM response
+
+Two things to clarify before I build. The wrapping you saw is almost certainly the long correspondent lines (full `Name <email>` strings), not the subject — but I'll add subject truncation regardless since you asked. Let me check the metadata reader and report structure.
+
+Let me set a sensible subject cap (configurable) and add `next_action` to the CSV plus the report. For "visually different" I'll use a tree-style connector line. Let me look at the relevant code.Now update `sync_metadata` to preserve/add the `next_action` column, and add a loader so the report can read it. Let me view sync_metadata.I'll rewrite `sync_metadata` to preserve all non-filename columns generically (robust to future fields), and add a `load_metadata` reader.Now the report side: add a `truncate` helper, thread subject-cap + next_action + a `show_next_action` flag through `file_report_line`, `report_folder`, `print_report`. Let me view the current reporting block.Now update `print_report` and `main` to load metadata, pass the subject cap, and enable `show_next_action` for all but archive.Now test: long subject truncation, next_action shown in triage but not archive, and CSV migration of an old 3-column file.Subject truncation works (cut at 40 chars with `…`), the old 3-column CSV migrated to 4 columns while preserving `old note`/`Pudding`, and a blank `next_action` was added. Now let me verify the `next_action` branch line appears in triage but not archive.Both behaviors confirmed. The triage entry shows `└─ next: Reply to sender` on its own branch line, while the archive entry omits `next_action` entirely even though one is set in the CSV.Done.
+
+**Subject truncation** — New `truncate()` helper and `max_subject_chars` setting (default 72) cut over-long subjects with a `…`. Set it in `gtd.py.ini` if you want a different width.
+
+**`next_action` field** — Added to `metadata.csv` headers. `sync_metadata` now preserves all columns generically, so existing files migrate automatically (your old 3-column CSV gained the column with values intact). The new `load_metadata()` reads it back for the report. In the output it renders as a tree-style branch line that stands out from the plain correspondent lines:
+
+```
+2026-06-03  (20d)   This is an extremely long subject line…
+                    2026-06-03-this-is-an-extremely-long-subject-line-that-s.eml
+                    Jane <jane@example.com>
+                    └─ next: Reply to sender
+```
+
+It's shown for triage, actionable, and reference, and suppressed for the archive (even if a value exists in the CSV).
+
+Two notes worth flagging:
+
+The wrapping you saw was almost certainly the correspondent lines — a full `Name <long.email@domain.com>` string can easily exceed even a wide terminal, and subjects were rarely the culprit. Subject truncation is in regardless since you asked, but if lines still wrap, the correspondents are the likely cause; I can truncate those too (or show just the display name without the address).
+
+Also, `└─` uses box-drawing characters like `tree`. If your terminal font renders them oddly, a plain-ASCII alternative (e.g. `>> next:`) is a one-line change.
+
+Attached: gtd.py _(as of this commit)_
