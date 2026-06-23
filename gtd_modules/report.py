@@ -214,7 +214,7 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     if not entries:
         print("   (empty)")
     for _, _, block in entries:
-        print(block)
+        print(block + "\n")  # trailing newline => blank line after each entry
 
 
 def print_report(base_dir, archive_n, colour_cfg, accounts=None,
@@ -255,3 +255,4 @@ def print_report(base_dir, archive_n, colour_cfg, accounts=None,
         report_folder(base_dir, folder, colour_cfg,
                       show_next_action=show_next_action,
                       limit=effective_limit, **common)
+
