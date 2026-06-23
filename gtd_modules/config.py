@@ -48,7 +48,7 @@ ARCHIVE_DIR = "05-archive"
 
 ALL_DIRS = [INPUT_DIR, TRIAGE_DIR, ACTIONABLE_DIR, REFERENCE_DIR, ARCHIVE_DIR]
 METADATA_FILE = "metadata.csv"
-METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "message_ref"]
+METADATA_HEADERS = ["eml_filename", "general_notes", "project", "next_action", "message_ref", "flags"]
 
 
 def load_config(config_path=CONFIG_FILE):

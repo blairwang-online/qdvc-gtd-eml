@@ -597,3 +597,51 @@ Now write a README.md. It's a bit different to MAINTENANCE.md in that it should 
 ## 34. LLM response
 
 Done. The README is short and visitor-facing: a one-line pitch, a brief "how it works" with the folder-flow diagram, the two commands, the colour-paging tip, a minimal `config.yml` example, requirements, and a pointer to MAINTENANCE.md for anyone who wants the deeper detail. It deliberately leaves out the internals (module graph, edge-case rules, testing recipes) that belong in the maintainer doc.
+
+## 35. User request
+
+In metadata.csv, introduce a column called `flags`.
+
+If flags contains "pinned", the corresponding EML file appears at the very top of its section of the report. The text "PINNED" should appear in a similar fashion to the "next" tree-indicator. It should appear before the tree-indicator.
+
+## 36. LLM response
+
+Let me plan this. The `flags` column will hold space- or comma-separated tokens. "pinned" sorts the entry to the top of its section, and shows a `PINNED` marker styled like the `next` indicator, placed before it. Let me check the metadata headers and the report sorting/trailing logic.Now the report. Let me view `file_report_line` and `report_folder` to thread `flags` through, build the PINNED line, and adjust sorting.I'll add a flag-parsing helper, thread `flags` into `file_report_line` (adding the PINNED line before the next-action), and make `report_folder` sort pinned entries to the top and return the pinned status. A design note: the PINNED marker must appear *before* the tree-indicator. The tree-indicator (`└─ next:`) and the account label are both trailing lines. I'll place PINNED first in the trailing list.
+
+Let me add a helper to parse flags first.I need `re` imported in report.py. Let me check.Now update `file_report_line` to accept `flags` and add the PINNED line before the tree-indicator. The PINNED marker should look like the `next` indicator (`└─ next:`). Since both PINNED and next-action are trailing lines and PINNED must come "before the tree-indicator", I'll add PINNED to trailing before the account label and next line.Now update `report_folder` to read flags, pass them, track pinned status, and sort pinned to the top. The current sort is by date (oldest→newest), then `limit` keeps the last N. I'll make pinned entries sort first within the section. For the archive with a limit, pinned items should still appear at the top — I'll apply the limit to non-pinned recency but keep pinned ones. Simplest correct approach: sort by `(not pinned, date)` so pinned float to top, but `limit` (archive) takes the most recent N *before* pinning reorders. Let me think: the archive shows "last N". A pinned archive item should appear at top even if old. I'll select the recent N, then ensure pinned items are included and floated to top.Now I should also update the report_folder docstring to mention flags/pinned. Let me also confirm the `flags` doc. Then test.Works: the pinned "Oldest" entry floats to the top of the section despite being the oldest, and `└─ PINNED` appears before `└─ next:`. Now let me verify the archive `limit` case — a pinned old archive item should still appear even when outside the recent-N window.The pinned archive item (Arch 01) appears at the top even though `archive_report_n=2` would normally exclude it, plus the 2 most recent (Arch 10, Arch 20). PINNED shows correctly, and the archive omits next-action as designed.
+
+One issue surfaced though: all dates show `(0d)` / `2026-06-23`. That's because my test wrote `Date: 2026-06-01 ...` without the RFC day-of-week/timezone format, so it failed to parse and fell back to "now". That's a test-data artifact, not a code bug — the triage test earlier (with proper RFC dates) parsed correctly. Let me confirm with a properly-formatted archive date.Confirmed — with a proper RFC date the pinned archive item shows `2026-06-01 (22d)` and still floats to the top. The earlier `(0d)` was purely my malformed test date.
+
+Let me verify colour mode renders the PINNED marker in magenta (uncoloured-by-age, like the account label).The `└─ PINNED` marker renders in magenta (`^[[35m`), wrapped with its own reset and sitting outside the body's age-colour — consistent with how the account label is styled, and the next-action line below it stays uncoloured.
+
+Everything works. Let me present the changed file.Done.
+
+**`flags` column** — Added to `METADATA_HEADERS`, so it appears in `metadata.csv` and migrates into existing files automatically on next run. A new `parse_flags()` splits the cell on commas/whitespace into a lower-cased token set, so `flags` can hold multiple values (e.g. `pinned urgent`).
+
+**Pinned behaviour:**
+- Entries flagged `pinned` float to the top of their section (stable within the group, so date order is otherwise preserved).
+- In the archive, a pinned item is shown even if it falls outside the recent-N window — it's never dropped by `archive_report_n`.
+- A `└─ PINNED` marker, styled like the `└─ next:` tree-indicator and shown in magenta, appears **before** the next-action line.
+
+Example:
+
+```
+2026-06-01  (22d)   Oldest
+                    2026-06-01-oldest.eml
+                    With: a@x.com
+                    └─ PINNED
+                    └─ next: Do this first
+```
+
+To pin an email, put `pinned` in its `flags` cell in `metadata.csv`.
+
+Two notes:
+
+I gave PINNED its own colour (magenta), placed outside the age-colouring just like the account label, so it stays visible regardless of the entry's green/yellow/red status. If you'd prefer a different colour or plain text, that's a one-line change.
+
+The MAINTENANCE.md describes the metadata columns and report-rendering rules; this adds a new column and a sorting rule. Want me to update that doc to document `flags`/pinned?
+
+Attached: 
+
+- config.py _(as of this commit)_
+- report.py _(as of this commit)_

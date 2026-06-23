@@ -5,6 +5,7 @@ action) used by gtd.py.
 """
 
 import os
+import re
 from datetime import datetime, timezone
 
 from . import config, emailutil, fs
@@ -63,30 +64,51 @@ def truncate(text, max_chars):
     return text
 
 
+def parse_flags(raw):
+    """
+    Parse the metadata `flags` cell into a lower-cased set of tokens. Tokens may
+    be separated by commas and/or whitespace.
+
+    Example:
+        parse_flags("pinned")              # -> {"pinned"}
+        parse_flags("pinned, urgent")      # -> {"pinned", "urgent"}
+        parse_flags("")                    # -> set()
+    """
+    if not raw:
+        return set()
+    return {tok.lower() for tok in re.split(r"[,\s]+", raw.strip()) if tok}
+
+
 def file_report_line(base_dir, folder, filename, exclude=None,
                      max_subject=0, next_action=None, accounts=None,
-                     colour_enabled=True, today=None):
+                     colour_enabled=True, flags=None, today=None):
     """
     Build the report content for one file. Correspondents are prefixed with
-    "With: " and capped at 3 (plus a "+ N more" line). Trailing lines (the
-    matched own-account, then the next_action) are returned SEPARATELY from the
-    age-coloured body so they render distinctly: the account uses its own
-    configured colour; the next_action is uncoloured.
+    "With: " and capped at 3 (plus a "+ N more" line). Trailing lines (a PINNED
+    marker, the matched own-account, then the next_action) are returned
+    SEPARATELY from the age-coloured body so they render distinctly: PINNED and
+    the account use their own colour; the next_action is uncoloured.
+
+    `flags` is the parsed flag set (see parse_flags); when it contains "pinned"
+    a "└─ PINNED" marker is emitted before the next-action tree-indicator.
 
     Returns (body_block, trailing_lines, date_dt, elapsed), where trailing_lines
     is a list of already-formatted strings (possibly empty), e.g.:
-        ["                    [Work account]",
+        ["                    └─ PINNED",
+         "                    [Work account]",
          "                    └─ next: Reply to Jane"]
 
     Example:
         file_report_line("/home/me/gtd", "02-triage", "x.eml",
-                         next_action="Reply", accounts=accts)
+                         next_action="Reply", accounts=accts, flags={"pinned"})
         # -> ("2026-06-03  (20d)   Subject\\n...With: Jane <jane@x.com>",
-        #     ["                    [Work account]",
+        #     ["                    └─ PINNED",
+        #      "                    [Work account]",
         #      "                    └─ next: Reply"], date_dt, 20)
     """
     if today is None:
         today = datetime.now(timezone.utc)
+    flags = flags or set()
 
     account_emails = [a["email_address"] for a in (accounts or [])]
     exclude = list(exclude or []) + account_emails
@@ -115,6 +137,9 @@ def file_report_line(base_dir, folder, filename, exclude=None,
         rows.append(f"{indent}With: (no correspondents)")
 
     trailing = []
+    if "pinned" in flags:
+        marker = colourize(f"\u2514\u2500 PINNED", "magenta", colour_enabled)
+        trailing.append(f"{indent}{marker}")
     if own_account:
         label = colourize(f"[{own_account['display_name']}]",
                           own_account["colour"], colour_enabled)
@@ -137,6 +162,9 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     next_action branch line (off for the archive); `accounts` is the
     my_own_accounts list used to label which account received each email.
 
+    Entries flagged "pinned" in metadata float to the top of their section
+    (and are never dropped by the archive `limit`).
+
     Example:
         report_folder("/home/me/gtd", "03-actionable", (2, 14, True),
                       metadata=meta, show_next_action=True, accounts=accts)
@@ -145,29 +173,39 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     green_max, yellow_max, enabled = colour_cfg
     metadata = metadata or {}
     files = fs.list_eml_files(base_dir, folder)
-    lines = []
+    entries = []
     for name in files:
+        meta = metadata.get(name, {})
+        flags = parse_flags(meta.get("flags", ""))
+        pinned = "pinned" in flags
         try:
-            na = metadata.get(name, {}).get("next_action", "") if show_next_action else None
+            na = meta.get("next_action", "") if show_next_action else None
             body, trailing, date_dt, elapsed = file_report_line(
                 base_dir, folder, name, exclude=exclude,
                 max_subject=max_subject, next_action=na,
-                accounts=accounts, colour_enabled=enabled)
+                accounts=accounts, colour_enabled=enabled, flags=flags)
             body = colourize(body, colour_for_days(elapsed, green_max, yellow_max), enabled)
             block = "\n".join([body] + trailing)
-            lines.append((date_dt, block))
+            entries.append((pinned, date_dt, block))
         except Exception as e:
-            lines.append((datetime.min.replace(tzinfo=timezone.utc),
-                          f"!! could not read {name}: {e}"))
+            entries.append((pinned, datetime.min.replace(tzinfo=timezone.utc),
+                            f"!! could not read {name}: {e}"))
 
-    lines.sort(key=lambda t: t[0])  # oldest -> newest
+    entries.sort(key=lambda t: t[1])  # oldest -> newest
     if limit is not None:
-        lines = lines[-limit:]
+        # Keep the most recent `limit`, but never drop pinned entries.
+        recent = entries[-limit:]
+        pinned_extra = [e for e in entries[:-limit] if e[0]]
+        entries = pinned_extra + recent
+
+    # Float pinned entries to the top of the section (stable: preserves the
+    # date order established above within each group).
+    entries.sort(key=lambda t: not t[0])
 
     print(f"\n=== {folder} ({len(files)} file{'s' if len(files) != 1 else ''}) ===")
-    if not lines:
+    if not entries:
         print("   (empty)")
-    for _, block in lines:
+    for _, _, block in entries:
         print(block)
 
 
