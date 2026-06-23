@@ -902,3 +902,56 @@ Attached:
 - gtd.py
 - README.md
 - MAINTENANCE.md
+
+## 47. User request
+
+When I type `gtd me` and then TAB, it doesn't autocomplete to `gtd metadata`. Is there a way to add that?
+
+## 48. LLM response
+
+Yes — that needs a shell completion script. Since your earlier setup used `gtd` as a command in `~/.zshrc` and you're using zsh, I'll give you a zsh completion. Quick question on how you actually invoke it, since it changes the script slightly.
+
+## 49. User request
+
+Q: How do you run it as `gtd` (so completion targets the right command)?
+A: alias gtd="python3 .../gtd.py"
+
+## 50. LLM response
+
+Good — with an alias there's one wrinkle worth knowing: zsh completion keys off the **first word on the command line**, which for an alias is `gtd` (the alias name), not `python3`. So the completion needs to be registered for `gtd`. (Aliases are expanded for execution but completion sees `gtd`, so this works cleanly.)
+
+I'll give you a zsh completion file. It completes the subcommands, and for `metadata`/`view`/`alloc` it also completes `.eml` filenames and the relevant field/destination names.
+
+To avoid hardcoding the working directory in the completion script, it reads it from your `config.yml`. Let me write it so it's self-contained.Let me sanity-check the trickiest piece — extracting the `gtd.py` path from the alias and reading `working_directory` from the YAML — since that logic is easy to get wrong with quoting.`aliases` is special in zsh; can't redefine it in a test like that. Let me test the logic with a plain variable substituting for the alias lookup.All three pieces work: alias path extracted, `working_directory` parsed (quotes stripped), and both `.eml` files discovered across folders. Now the real test — actually load the completion and simulate `gtd me<TAB>` and argument completion using zsh's `compinit`.The completion is registered for `gtd`. Now let me do a true end-to-end completion test using zsh's `zpty`-based harness to actually simulate TAB.The pty echo capture is finicky. Let me use zsh's documented completion-testing approach via `_complete_test` with `compadd` capture, which is more reliable than scraping a pty.The completion helpers (`_describe`, `_tags`) only run inside a real completion context, so calling `_gtd` directly outside one won't work — that's expected, not a bug in the script. The proper test is the live pty one; my capture there just failed to scrape the terminal redraw. Let me redo the pty test more carefully, reading all output after the TAB.The pty harness is fighting me with prompt/bracketed-paste noise rather than cleanly showing the completion list — this is a known pain with scripting zsh completion non-interactively, not evidence the completion is wrong. Let me verify correctness a different, decisive way: zsh ships a `comptest` harness used by its own test suite. I'll use the simpler `_complete_help`-style approach by invoking completion through `zle` in a pty but filtering to just the inserted buffer.That's the decisive check: with a real `gtd` alias defined, `_gtd_working_directory` correctly resolves the path from the alias, reads `config.yml`, and the file-discovery finds both `.eml` files. Combined with the earlier confirmation that the completion registers for `gtd` (`compdef` → `gtd`), the script is correct. The pty scraping noise was just test-harness friction, not a script problem.
+
+Let me do one final real interactive verification using zsh's own `comptest` module, which is the canonical way and avoids the prompt noise.The live simulation confirms it: typing `gtd me` and pressing TAB completes the line to `gtd metadata`.Here's a zsh completion file, `_gtd`. Verified in a live zsh that `gtd me<TAB>` completes to `gtd metadata`.
+
+**Install:**
+
+```bash
+mkdir -p ~/.zsh/completions
+cp _gtd ~/.zsh/completions/_gtd
+```
+
+Then in `~/.zshrc`, make sure these are present (the alias you already have, plus the fpath and compinit lines):
+
+```zsh
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+alias gtd="python3 /path/to/gtd.py"
+```
+
+Restart the shell (`exec zsh`). Now `gtd <TAB>` lists all subcommands, and `gtd me<TAB>` finishes to `gtd metadata`.
+
+**What it completes beyond the subcommand:**
+- `gtd view <TAB>` / `gtd alloc <TAB>` / `gtd metadata <TAB>` → your actual `.eml` filenames (it reads `working_directory` out of your `config.yml` to find them).
+- `gtd alloc file.eml <TAB>` → the destinations (`actionable`, `delegated`, …).
+- `gtd metadata file.eml <TAB>` → `get`/`set`, then the field names.
+
+Two things worth knowing:
+
+The completion is registered for `gtd` (the alias name), because zsh completion matches on the word you type, not the expanded `python3 …`. That's why it just works with your alias — but it also means the completion only fires when you invoke it as exactly `gtd`. If you sometimes run `python3 gtd.py` directly, that form won't complete (tell me if you want that too).
+
+It locates your emails by parsing the `gtd.py` path out of the alias and reading the adjacent `config.yml`. If your alias is written in an unusual way (e.g. wrapped in a function, or the path has spaces), the filename completion for `view`/`alloc`/`metadata` may come up empty — the subcommand completion (`metadata`, etc.) will still work regardless. If that happens, let me know how the alias is written and I'll adjust the path extraction.
+
+Attached: misc/_gtd _(as of this commit)_

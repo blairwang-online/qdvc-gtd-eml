@@ -1,0 +1,99 @@
+#compdef gtd
+#
+# zsh completion for the `gtd` alias (alias gtd="python3 /path/to/gtd.py").
+#
+# INSTALL
+#   1. Save this file somewhere on your $fpath, named `_gtd`, e.g.:
+#          mkdir -p ~/.zsh/completions
+#          cp _gtd ~/.zsh/completions/_gtd
+#   2. Ensure that directory is on $fpath and compinit runs, in ~/.zshrc:
+#          fpath=(~/.zsh/completions $fpath)
+#          autoload -Uz compinit && compinit
+#   3. Make sure the alias is defined (also in ~/.zshrc):
+#          alias gtd="python3 /path/to/gtd.py"
+#   4. Restart the shell (or `exec zsh`).
+#
+# After that, `gtd me<TAB>` completes to `gtd metadata`, and arguments
+# (subcommands, .eml filenames, field names, destinations) complete too.
+#
+# NOTE: completion keys off the command word `gtd`, which is the alias name —
+# that's why the first line is `#compdef gtd` and not `gtd.py`.
+
+# Locate config.yml so we can offer real .eml filenames. We look next to the
+# gtd.py that the alias points at; fall back to the current directory.
+_gtd_working_directory() {
+    local script_dir cfg wd
+    # Extract the gtd.py path from the alias definition, if present.
+    local alias_def="${aliases[gtd]}"
+    local py_path="${${(z)alias_def}[-1]}"   # last word of the alias value
+    if [[ -n "$py_path" && -f "$py_path" ]]; then
+        script_dir="${py_path:h}"
+    else
+        script_dir="$PWD"
+    fi
+    cfg="$script_dir/config.yml"
+
+    if [[ -f "$cfg" ]]; then
+        # Pull `working_directory:` from the YAML, strip quotes/whitespace.
+        wd=$(sed -n 's/^[[:space:]]*working_directory:[[:space:]]*//p' "$cfg" \
+                 | head -1 | sed 's/^["'\'']//; s/["'\''][[:space:]]*$//')
+    fi
+    [[ -z "$wd" ]] && wd="$script_dir/gtd-eml"
+    print -r -- "$wd"
+}
+
+# Collect .eml filenames across all workflow folders.
+_gtd_eml_files() {
+    local wd; wd="$(_gtd_working_directory)"
+    local -a files
+    files=("${(@f)$(find "$wd" -mindepth 2 -maxdepth 2 -name '*.eml' \
+                        -exec basename {} \; 2>/dev/null)}")
+    compadd -a files
+}
+
+_gtd() {
+    local -a subcommands
+    subcommands=(
+        'list:Ingest new input and print the status report'
+        'view:Preview a single email'
+        'alloc:Move an email to another folder'
+        'metadata:Get or set a metadata.csv field'
+        'help:Show the command overview'
+    )
+
+    local -a destinations fields
+    destinations=(actionable delegated reference archive triage input)
+    fields=(general_notes project next_action flags message_ref)
+
+    # $words excludes the command word offset by $CURRENT; position 1 is the
+    # subcommand, 2+ are its arguments.
+    if (( CURRENT == 2 )); then
+        _describe -t commands 'gtd command' subcommands
+        return
+    fi
+
+    local cmd="${words[2]}"
+    case "$cmd" in
+        view)
+            (( CURRENT == 3 )) && _gtd_eml_files
+            ;;
+        alloc)
+            if (( CURRENT == 3 )); then
+                _gtd_eml_files
+            elif (( CURRENT == 4 )); then
+                _describe -t destinations 'destination' destinations
+            fi
+            ;;
+        metadata)
+            if (( CURRENT == 3 )); then
+                _gtd_eml_files
+            elif (( CURRENT == 4 )); then
+                _values 'action' get set
+            elif (( CURRENT == 5 )); then
+                _describe -t fields 'field' fields
+            fi
+            ;;
+    esac
+}
+
+_gtd "$@"
