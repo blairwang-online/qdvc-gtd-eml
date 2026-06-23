@@ -221,3 +221,53 @@ Please update the next action part (with the tree connector) to display without 
 
 ## 14. LLM response
 
+Two changes: the `next_action` line should escape the block colouring, and each correspondent line should be prefixed with "With: ". Let me view the current `file_report_line` and `report_folder` to see how colouring wraps the block.The block is colourized as one unit, so the `next_action` line currently inherits the colour. To keep it uncoloured, I'll have `file_report_line` return the body and the next-action line separately, then `report_folder` colours only the body and appends the plain next-action line.Now update `report_folder` to colour only the body and append the plain next-action line.Both changes confirmed. Each correspondent now reads `With: …`. And the colour reset `^[[0m` closes immediately after the last correspondent line — the `└─ next:` line (shown here as raw UTF-8 bytes via `cat -v`) sits entirely outside the colour codes, so it renders in the terminal's default colour regardless of the entry's green/yellow/red status.Done.
+
+**Uncoloured next-action line** — `file_report_line` now returns the next-action line separately from the body. `report_folder` colourizes only the body and appends the `└─ next:` line afterward, so it always renders in your terminal's default colour and stands apart from the colour-coded entry above it.
+
+**"With: " prefix** — Every correspondent line is now prefixed, e.g.:
+
+```
+2026-06-03  (20d)   Project Pudding          ← coloured by age
+                    2026-06-03-project-pudding.eml
+                    With: Jane <jane@example.com>
+                    With: Bob <bob@example.com>
+                    └─ next: Reply to Jane by Friday   ← always default colour
+```
+
+Attached: gtd.py _(as of this commit)_
+
+## 15. User request
+
+As a complementary tool, please write gtd_email_preview.py which takes an input, a filename for an EML file, and displays it:
+
+* Example usage: `email_preview.py 2026-06-03-project-pudding.eml`
+* Should be able to determine relevant folders to search based on gtd.py.ini
+* Should clearly indicate From:, Date:, To:, CC:, BCC:, Subject:.
+* Should indicate names of attached files if any
+* Should render email body even if base64-encoded
+* Can be piped into `less`
+
+## 16. LLM response
+
+I'll reuse the config-loading approach from gtd.py. Let me check the exact INI parsing and folder constants so the two stay consistent.The INI is named after its own script (`gtd.py.ini`), so the preview tool must point explicitly at that filename rather than its own. I'll hardcode the companion INI as `gtd.py.ini` next to the preview script.Now test: a base64 body, an attachment, multiple recipients including CC/BCC, and a MIME-encoded subject.Works well. One cosmetic fix: `Attached:report.pdf` runs together because the label is exactly 9 chars wide with no trailing space. Let me also verify the HTML-only and base64-HTML paths, then fix the spacing.All working: spacing fixed, multiple attachments aligned, HTML-only body converted to readable text with entities decoded, and base64 transfer-decoding handled in both plain and HTML cases.
+
+One detail visible above: empty CC/BCC still print as blank lines. I'll skip address headers that are empty, but always keep From / Date / Subject so the core fields are predictable.Empty CC/BCC are correctly suppressed. But the pipe test exposed a real bug: piping into a reader that closes early (like `head`, or quitting `less`) triggers a `BrokenPipeError` traceback. Since you specifically want this pipeable into `less`, I'll handle it cleanly.No more traceback when the reader closes early. The tool is ready.Done. `gtd_email_preview.py` does the following:
+
+**Finds the file** — Reads `working_directory` from the shared `gtd.py.ini` (sitting next to the scripts) and searches all five folders. A `.eml` extension is appended automatically if you omit it, so `gtd_email_preview.py 2026-06-03-project-pudding` works.
+
+**Shows the headers** — From, Date (reformatted to `YYYY-MM-DD HH:MM`), To, CC, BCC, Subject, all MIME-decoded. Empty CC/BCC/To lines are suppressed; From, Date, and Subject always print.
+
+**Lists attachments** — Any part with an attachment disposition or filename is listed by name under `Attached:`, one per line.
+
+**Renders the body** — Prefers `text/plain`, falls back to converting `text/html` to readable text. Base64 and quoted-printable are decoded transparently via `get_payload(decode=True)`, and the declared charset is honoured.
+
+**Pipes cleanly** — `gtd_email_preview.py file.eml | less` works, and quitting the pager early no longer dumps a `BrokenPipeError`. For coloured emails there aren't any colour codes here, so plain `less` is fine (no `-R` needed).
+
+A couple of notes:
+
+The HTML-to-text conversion is deliberately simple (strips tags, decodes a handful of entities). It's fine for reading, but heavily styled marketing emails won't look pretty — if you ever need richer rendering, a library like `html2text` would be the upgrade.
+
+The output is plain text with no ANSI colour, keeping it portable for piping and redirection. If you'd like the header labels colourized to match `gtd.py`'s style when output is a terminal, that's a small addition.
+
+Attached: gtd_email_preview.py _(as of this commit)_

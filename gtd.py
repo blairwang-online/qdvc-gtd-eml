@@ -385,23 +385,25 @@ def truncate(text, max_chars):
 def file_report_line(base_dir, folder, filename, exclude=None,
                      max_subject=0, next_action=None, today=None):
     """
-    Build a multi-line report block for one file:
-        <date> (<elapsed>d)   <subject (truncated)>
-                              <filename>
-                              <correspondent1>
-                              <correspondent2>
-                              └─ next: <next_action>     (only if provided)
+    Build the report content for one file. Correspondents are prefixed with
+    "With: ". The next_action (if any) is returned SEPARATELY so the caller can
+    render it uncolourized for visual contrast.
 
-    `max_subject` truncates the subject (0 = no limit). `next_action`, when a
-    non-empty string, is shown on a tree-style branch line to stand out.
-    Returns (block_text, date_dt, elapsed).
+    Returns (body_block, next_action_line_or_None, date_dt, elapsed), where:
+        body_block:
+            <date> (<elapsed>d)   <subject (truncated)>
+                                  <filename>
+                                  With: <correspondent1>
+                                  With: <correspondent2>
+        next_action_line:
+            "                    └─ next: <next_action>"  (or None)
 
     Example:
         file_report_line("/home/me/gtd", "02-triage", "2026-06-03-x.eml",
                          next_action="Reply to Jane")
         # -> ("2026-06-03  (20d)   Meeting Minutes\\n"
         #     "                    2026-06-03-x.eml\\n"
-        #     "                    Jane <jane@x.com>\\n"
+        #     "                    With: Jane <jane@x.com>",
         #     "                    └─ next: Reply to Jane", date_dt, 20)
     """
     if today is None:
@@ -421,13 +423,15 @@ def file_report_line(base_dir, folder, filename, exclude=None,
     indent = " " * len(f"{date_str} {elapsed_str}   ")
     rows = [f"{date_str} {elapsed_str}   {subject}", f"{indent}{filename}"]
     if correspondents:
-        rows.extend(f"{indent}{c}" for c in correspondents)
+        rows.extend(f"{indent}With: {c}" for c in correspondents)
     else:
-        rows.append(f"{indent}(no correspondents)")
-    if next_action and next_action.strip():
-        rows.append(f"{indent}\u2514\u2500 next: {next_action.strip()}")
+        rows.append(f"{indent}With: (no correspondents)")
 
-    return "\n".join(rows), date_dt, elapsed
+    next_action_line = None
+    if next_action and next_action.strip():
+        next_action_line = f"{indent}\u2514\u2500 next: {next_action.strip()}"
+
+    return "\n".join(rows), next_action_line, date_dt, elapsed
 
 
 def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
@@ -452,10 +456,11 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     for name in files:
         try:
             na = metadata.get(name, {}).get("next_action", "") if show_next_action else None
-            block, date_dt, elapsed = file_report_line(
+            body, na_line, date_dt, elapsed = file_report_line(
                 base_dir, folder, name, exclude=exclude,
                 max_subject=max_subject, next_action=na)
-            block = colourize(block, colour_for_days(elapsed, green_max, yellow_max), enabled)
+            body = colourize(body, colour_for_days(elapsed, green_max, yellow_max), enabled)
+            block = body if na_line is None else f"{body}\n{na_line}"
             lines.append((date_dt, block))
         except Exception as e:
             lines.append((datetime.min.replace(tzinfo=timezone.utc),
