@@ -84,26 +84,28 @@ def file_report_line(base_dir, folder, filename, exclude=None,
                      colour_enabled=True, flags=None, today=None):
     """
     Build the report content for one file. Correspondents are prefixed with
-    "With: " and capped at 3 (plus a "+ N more" line). Trailing lines (a PINNED
-    marker, the matched own-account, then the next_action) are returned
-    SEPARATELY from the age-coloured body so they render distinctly: PINNED and
-    the account use their own colour; the next_action is uncoloured.
+    "With: " and capped at 3 (plus a "+ N more" line). Trailing lines (the
+    matched own-account, then a PINNED marker, then the next_action) are
+    returned SEPARATELY from the age-coloured body so they render distinctly:
+    the account and PINNED use their own colour; the next_action is uncoloured.
+    The account label comes first; the tree-style indicators (PINNED, next)
+    follow it.
 
     `flags` is the parsed flag set (see parse_flags); when it contains "pinned"
-    a "└─ PINNED" marker is emitted before the next-action tree-indicator.
+    a "└─ PINNED" marker is emitted (after the account label, before next).
 
     Returns (body_block, trailing_lines, date_dt, elapsed), where trailing_lines
     is a list of already-formatted strings (possibly empty), e.g.:
-        ["                    └─ PINNED",
-         "                    [Work account]",
+        ["                    [Work account]",
+         "                    └─ PINNED",
          "                    └─ next: Reply to Jane"]
 
     Example:
         file_report_line("/home/me/gtd", "02-triage", "x.eml",
                          next_action="Reply", accounts=accts, flags={"pinned"})
         # -> ("2026-06-03  (20d)   Subject\\n...With: Jane <jane@x.com>",
-        #     ["                    └─ PINNED",
-        #      "                    [Work account]",
+        #     ["                    [Work account]",
+        #      "                    └─ PINNED",
         #      "                    └─ next: Reply"], date_dt, 20)
     """
     if today is None:
@@ -137,13 +139,13 @@ def file_report_line(base_dir, folder, filename, exclude=None,
         rows.append(f"{indent}With: (no correspondents)")
 
     trailing = []
-    if "pinned" in flags:
-        marker = colourize(f"\u2514\u2500 PINNED", "magenta", colour_enabled)
-        trailing.append(f"{indent}{marker}")
     if own_account:
         label = colourize(f"[{own_account['display_name']}]",
                           own_account["colour"], colour_enabled)
         trailing.append(f"{indent}{label}")
+    if "pinned" in flags:
+        marker = colourize(f"\u2514\u2500 PINNED", "magenta", colour_enabled)
+        trailing.append(f"{indent}{marker}")
     if next_action and next_action.strip():
         trailing.append(f"{indent}\u2514\u2500 next: {next_action.strip()}")
 

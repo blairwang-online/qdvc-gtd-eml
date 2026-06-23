@@ -645,3 +645,37 @@ Attached:
 
 - config.py _(as of this commit)_
 - report.py _(as of this commit)_
+
+## 37. User request
+
+It seems that the output is like so:
+
+```
+2026-06-01  (22d)   Oldest
+                    2026-06-01-oldest.eml
+                    With: a@x.com
+                    └─ PINNED
+                    [Personal account]
+                    └─ next: Do this first
+```
+
+The PINNED and the [Personal account] should be swapped around. The account label should appear before the tree-like indicators.
+
+## 38. LLM response
+
+Let me update the docstring examples that show the old ordering, then test.Fixed. The account label now appears before the tree-style indicators:
+
+```
+2026-06-01  (22d)   Oldest
+                    2026-06-01-oldest.eml
+                    With: a@x.com
+                    [Personal account]
+                    └─ PINNED
+                    └─ next: Do this first
+```Done. Swapped the order so the `[account]` label is emitted first, then the tree-style indicators (`└─ PINNED`, then `└─ next:`) follow it grouped together. Docstrings updated to match.
+
+
+Attached: 
+
+- report.py _(as of this commit)_
+
