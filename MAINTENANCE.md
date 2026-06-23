@@ -34,12 +34,12 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 
 | Command | Purpose |
 | --- | --- |
-| `python gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
-| `python gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
-| `python gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
-| `python gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
-| `python gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
-| `python gtd.py help` | Print the command overview. |
+| `python3 gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
+| `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
+| `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
+| `python3 gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
+| `python3 gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
+| `python3 gtd.py help` | Print the command overview. |
 
 `gtd.py` is deliberately thin (~75 lines): it maps subcommand names to handlers
 and does nothing else. All real logic lives in the `gtd_modules` package. It
@@ -235,7 +235,7 @@ So by default piping to a file or pager produces clean text. To page **with**
 colour and full scroll support (wheel, PgUp/PgDown, `/`-search):
 
 ```bash
-FORCE_COLOR=1 python gtd.py list | less -R   # or set force_colour: true in config.yml
+FORCE_COLOR=1 python3 gtd.py list | less -R   # or set force_colour: true in config.yml
 ```
 
 `less -R` passes ANSI colour through; without `-R` the codes show as literal
@@ -345,23 +345,23 @@ There's no formal test suite. A fast manual smoke test:
 # from a scratch dir containing gtd.py, gtd_modules/, config.yml
 mkdir -p data/01-input          # point working_directory at ./data in config.yml
 # drop a sample .eml into data/01-input, then:
-python gtd.py list              # should ingest, write metadata.csv, print report
-python gtd.py list delegated    # just the delegated segment
-python gtd.py stats             # per-folder counts + total
-python gtd.py view <the-new-filename>
-python gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
-python gtd.py metadata <the-new-filename> set next_action = "Reply soon"
-python gtd.py metadata <the-new-filename> get next_action   # -> Reply soon
+python3 gtd.py list              # should ingest, write metadata.csv, print report
+python3 gtd.py list delegated    # just the delegated segment
+python3 gtd.py stats             # per-folder counts + total
+python3 gtd.py view <the-new-filename>
+python3 gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
+python3 gtd.py metadata <the-new-filename> set next_action = "Reply soon"
+python3 gtd.py metadata <the-new-filename> get next_action   # -> Reply soon
 ```
 
 Useful checks when touching the relevant area:
 - **Naming**: a very long subject + a ref, under a small `max_filename_chars`,
   should keep the full ref and truncate the subject.
 - **Refs**: a base64 body and a multi-ref thread (first wins).
-- **Colour**: run `FORCE_COLOR=1 python gtd.py list | cat -v` to see the ANSI
+- **Colour**: run `FORCE_COLOR=1 python3 gtd.py list | cat -v` to see the ANSI
   codes. Each line of a report entry should begin with the same colour code
   (e.g. `^[[31m`) and end with `^[[0m` — not just the first line. Also confirm
-  `NO_COLOR=1 python gtd.py list | cat -v` emits zero escape sequences.
+  `NO_COLOR=1 python3 gtd.py list | cat -v` emits zero escape sequences.
 - **alloc**: moving to a folder the file is already in should no-op; an
   unknown destination should exit 2; a missing file should exit 1.
 - **metadata**: `set` then `get` should round-trip; setting a read-only field

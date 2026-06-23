@@ -28,13 +28,13 @@ keeps in sync.
 ## Usage
 
 ```bash
-python gtd.py list                       # ingest new files + print the report
-python gtd.py list <folder>              # show just one folder (e.g. actionable)
-python gtd.py stats                      # count emails in each folder
-python gtd.py view <file.eml>            # preview one email (headers + body)
-python gtd.py alloc <file.eml> <dest>    # move an email to another folder
-python gtd.py metadata <file.eml> ...    # get/set a metadata.csv field
-python gtd.py help                       # full command overview
+python3 gtd.py list                       # ingest new files + print the report
+python3 gtd.py list <folder>              # show just one folder (e.g. actionable)
+python3 gtd.py stats                      # count emails in each folder
+python3 gtd.py view <file.eml>            # preview one email (headers + body)
+python3 gtd.py alloc <file.eml> <dest>    # move an email to another folder
+python3 gtd.py metadata <file.eml> ...    # get/set a metadata.csv field
+python3 gtd.py help                       # full command overview
 ```
 
 `alloc`'s destination is a short name (`actionable`, `delegated`, `reference`,
@@ -43,8 +43,8 @@ python gtd.py help                       # full command overview
 `metadata` reads or writes one field for an email:
 
 ```bash
-python gtd.py metadata <file.eml> get next_action
-python gtd.py metadata <file.eml> set next_action = "Reply by Friday"
+python3 gtd.py metadata <file.eml> get next_action
+python3 gtd.py metadata <file.eml> set next_action = "Reply by Friday"
 ```
 
 Editable fields: `general_notes`, `project`, `next_action`, `flags`
@@ -53,14 +53,14 @@ Editable fields: `general_notes`, `project`, `next_action`, `flags`
 Page through a long report with colours and scrolling:
 
 ```bash
-FORCE_COLOR=1 python gtd.py list | less -R
+FORCE_COLOR=1 python3 gtd.py list | less -R
 ```
 
 `view` output is markdown-friendly, so it also pipes nicely into
 [`glow`](https://github.com/charmbracelet/glow):
 
 ```bash
-python gtd.py view <file.eml> | glow -
+python3 gtd.py view <file.eml> | glow -
 ```
 
 ## Shell completion
