@@ -108,18 +108,32 @@ misc/
 ## 4. Module dependency graph
 
 Arrows mean "imports / depends on". `gtd.py` dispatches into the `commands`
-package, whose modules wire the feature modules together (the package
-`__init__.py` re-exports each handler, so `commands.cmd_*` and
-`commands.HELP_TEXT` still resolve from one import). `config.py`,
+package; each command is its own module (re-exported by the package
+`__init__.py`, so `commands.cmd_*` and `commands.HELP_TEXT` still resolve from
+one import) and pulls in only the feature modules it actually needs. Almost
+every command depends on `config` and `fs`; the heavier feature modules
+(`ingest`, `report`, `preview`, `metadata`) are used by just a few. `config.py`,
 `emailutil.py`, and `naming.py` are leaf modules (no internal dependencies),
-which makes them the safest to edit in isolation.
+which makes them the safest to edit in isolation. `help` is itself a leaf — it
+imports nothing and only prints `HELP_TEXT`.
 
 ```mermaid
 graph TD
     gtd[gtd.py]
 
-    subgraph gtd_modules
-        commands[commands/ package]
+    subgraph commands [commands/ package]
+        c_list[list.py]
+        c_search[search.py]
+        c_stats[stats.py]
+        c_view[view.py]
+        c_alloc[alloc.py]
+        c_close[close.py]
+        c_pin[pin.py]
+        c_meta[metadata.py]
+        c_help[help.py]
+    end
+
+    subgraph features [feature modules]
         config[config.py]
         emailutil[emailutil.py]
         naming[naming.py]
@@ -130,19 +144,55 @@ graph TD
         preview[preview.py]
     end
 
-    %% entry point dispatches into the command hub
-    gtd --> commands
+    %% entry point dispatches to each command handler
+    gtd --> c_list
+    gtd --> c_search
+    gtd --> c_stats
+    gtd --> c_view
+    gtd --> c_alloc
+    gtd --> c_close
+    gtd --> c_pin
+    gtd --> c_meta
+    gtd --> c_help
 
-    %% command modules pull in the feature modules they need
-    commands --> config
-    commands --> fs
-    commands --> emailutil
-    commands --> ingest
-    commands --> metadata
-    commands --> preview
-    commands --> report
+    %% each command imports only the feature modules it needs
+    c_list --> config
+    c_list --> fs
+    c_list --> ingest
+    c_list --> metadata
+    c_list --> report
 
-    %% internal package edges
+    c_search --> config
+    c_search --> fs
+    c_search --> metadata
+    c_search --> report
+
+    c_stats --> config
+    c_stats --> fs
+
+    c_view --> config
+    c_view --> fs
+    c_view --> emailutil
+    c_view --> preview
+
+    c_alloc --> config
+    c_alloc --> fs
+
+    c_close --> config
+    c_close --> fs
+    c_close --> metadata
+
+    c_pin --> config
+    c_pin --> fs
+    c_pin --> metadata
+
+    c_meta --> config
+    c_meta --> fs
+    c_meta --> metadata
+
+    %% c_help imports nothing (leaf)
+
+    %% internal feature-module edges
     fs --> config
     metadata --> config
     metadata --> fs
@@ -155,7 +205,7 @@ graph TD
     report --> fs
     preview --> emailutil
 
-    %% leaf modules (no internal imports): config, emailutil, naming
+    %% leaf modules (no internal imports): config, emailutil, naming, commands/help.py
 ```
 
 ---
@@ -495,3 +545,4 @@ done
 
 Optional external tools the output is designed to play nicely with: `less` and
 [`glow`](https://github.com/charmbracelet/glow) for the `view` output.
+

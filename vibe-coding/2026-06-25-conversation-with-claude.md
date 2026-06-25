@@ -256,3 +256,36 @@ Every command was tested end-to-end (13/14 automated checks pass; the one "failu
 I updated MAINTENANCE.md throughout: the dispatch prose, the code-layout tree (now showing the package), the dependency graph and its mermaid diagram, the §6 flow intro, and a new "Adding a new subcommand" checklist reflecting the package workflow. README needed no change (it defers to MAINTENANCE for layout), and the zsh completion is unaffected since it keys off command names. All files end with a trailing newline.
 
 _(Attached: all other files modified in this commit.)_
+
+## 11. User request
+
+The mermaid diagram in MAINTENANCE.md hides all the commands under the `commands/ package` box. What does it look like if we split it out, one box for each command?
+
+## 12. LLM response
+
+Let me look at the current mermaid diagram to see its exact structure before reworking it.Now I need the exact per-command import edges so the diagram is accurate, not guessed. Let me extract them from each command module.Now I have the exact edges. Let me tabulate per command:
+
+- **list** → config, fs, ingest, metadata, report
+- **stats** → config, fs
+- **view** → config, fs, emailutil, preview
+- **alloc** → config, fs
+- **search** → config, fs, metadata, report
+- **close** → config, fs, metadata
+- **pin** → config, fs, metadata
+- **metadata** → config, fs, metadata
+- **help** → (nothing; leaf)
+
+Every command depends on config and fs except help. Let me design the diagram: `gtd.py` dispatches to each command node (inside a `commands` subgraph), and each command points to the feature modules it actually imports. To keep it readable I'll group the command nodes in their own subgraph and the feature modules in another. Let me rewrite the diagram and the surrounding prose.Now let me validate the mermaid syntax renders by parsing it with the mermaid CLI if available, otherwise a structural check.Structure is balanced and every command's edges match its actual imports. Let me try to render it with a real mermaid parser to be certain the syntax is valid (subgraph with bracket label is the one thing worth confirming).mmdc needs Chrome (not installable here), so it can't render. Let me validate the grammar directly with the mermaid parser library instead, which doesn't need a browser.That error is from mermaid's browser-DOM dependency (DOMPurify), not a grammar problem — it fails before reaching syntax validation in a non-browser environment. Let me use the underlying flow parser directly, which is pure JS.The internal path differs by version. Rather than chase mermaid's internals, my earlier structural validation already confirmed the key risk points: `graph TD` header, balanced `subgraph`/`end`, valid node-id syntax, and `-->` edges. The one syntactic feature I introduced beyond the original is the subgraph-with-title form `subgraph commands [commands/ package]` and `subgraph features [feature modules]`. Let me confirm that exact syntax is valid mermaid by checking the official grammar — the form is `subgraph id [title]`, which is well-supported. Let me just locate the actual parser file in this install to do a real parse.The parser is bundled into chunks in v11, hard to import standalone. Let me instead verify the subgraph-with-bracket-title syntax against a known-good minimal example using a lighter approach — install the standalone `@mermaid-js/parser` or just trust the well-documented grammar. Actually, let me try `mermaid.parse` again but stub the DOMPurify hook that was missing, which gets us to the real grammar check.It's just the `navigator` getter conflict in my script, not a mermaid problem. Let me skip setting navigator.The diagram parses as a valid mermaid flowchart. So the syntax is confirmed correct, the subgraph-with-title form works, and the structural/accuracy checks confirmed every command's edges match its real imports.
+
+Let me view the final result and confirm the trailing newline.Here's how the diagram looks now — `gtd.py` fans out to nine command nodes (in a `commands/ package` subgraph), and each command points only to the feature modules it actually imports (in a separate `feature modules` subgraph):Done. The diagram now breaks the single `commands/ package` box into one node per command, each wired to only the feature modules it actually imports.
+
+What the new shape shows:
+- `gtd.py` fans out to all nine command nodes (`list`, `search`, `stats`, `view`, `alloc`, `close`, `pin`, `metadata`, `help`), grouped in a `commands/ package` subgraph.
+- The feature modules sit in their own `feature modules` subgraph, with the internal edges among them (`fs→config`, `ingest→naming`, etc.) unchanged.
+- Each command's outgoing edges reflect its real imports: `list` is the heaviest (config, fs, ingest, metadata, report), `view` reaches into emailutil + preview, `close`/`pin`/`metadata` share the config+fs+metadata pattern, `stats`/`alloc` are lean (config + fs only), and `help` is a true leaf with no edges at all.
+
+This makes the asymmetry visible — you can now see at a glance that `report` is pulled in only by `list` and `search`, `preview` only by `view`, and `ingest` only by `list`, which the old single-box version hid.
+
+I verified the edges against the actual `from ..` imports in each module (a script cross-checked every command's edge set), confirmed the subgraphs are balanced, and parsed the block with mermaid itself (v11) — it validates as a `flowchart-v2`, so the syntax, including the `subgraph id [title]` labels, renders correctly. The file keeps its trailing newline, and only the diagram and its lead-in paragraph changed.
+
+_(Attached: all other files modified in this commit.)_
