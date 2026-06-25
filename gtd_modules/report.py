@@ -168,6 +168,102 @@ def strip_ansi(text):
     return re.sub(r"\033\[[0-9;]*m", "", text)
 
 
+# Reverse-video on/off, used by `search` to highlight the matched substring.
+# Reverse video (7) / its specific reset (27) is used rather than a colour so
+# the highlight stands out against ANY underlying age/account/pinned colour and,
+# crucially, leaves the surrounding foreground colour untouched.
+HIGHLIGHT_ON = "\033[7m"
+HIGHLIGHT_OFF = "\033[27m"
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def highlight_matches(block, query, enabled=True):
+    """
+    Wrap every case-insensitive occurrence of `query` in `block` with
+    reverse-video codes so it stands out in the `search` output. Works on text
+    that already contains colour codes: the search is performed on the plain
+    (ANSI-stripped) characters, but the highlight markers are spliced back into
+    the original coloured string at the matching character positions, so the
+    underlying colours are preserved. Matches that would span a line break are
+    not highlighted (each line is handled independently, matching how the rest
+    of the report applies colour per line). If `enabled` is False, or `query` is
+    empty, the block is returned unchanged.
+
+    Example:
+        highlight_matches("\\033[32mProject\\033[0m", "ject")
+        # -> "\\033[32mPro\\033[7mject\\033[27m\\033[0m"
+    """
+    if not enabled or not query:
+        return block
+    needle = query.lower()
+    return "\n".join(_highlight_line(line, needle) for line in block.split("\n"))
+
+
+def _highlight_line(line, needle):
+    """
+    Highlight every case-insensitive occurrence of `needle` (already lower-cased)
+    within a single line that may contain ANSI codes. Returns the line with
+    reverse-video markers spliced in around each match; unchanged if no match.
+
+    Example:
+        _highlight_line("\\033[32mProject\\033[0m", "ject")
+        # -> "\\033[32mPro\\033[7mject\\033[27m\\033[0m"
+    """
+    # Split into a token stream: ANSI codes (opaque, length 0 in plain text) and
+    # single literal characters. Build the plain text alongside, recording for
+    # each plain-text position which token index the character sits at.
+    tokens = []          # list of ("ansi", s) or ("char", s)
+    plain_chars = []     # the literal characters, in order
+    char_token_idx = []  # token index of each literal char
+    pos = 0
+    for m in _ANSI_RE.finditer(line):
+        for ch in line[pos:m.start()]:
+            char_token_idx.append(len(tokens))
+            tokens.append(("char", ch))
+            plain_chars.append(ch)
+        tokens.append(("ansi", m.group()))
+        pos = m.end()
+    for ch in line[pos:]:
+        char_token_idx.append(len(tokens))
+        tokens.append(("char", ch))
+        plain_chars.append(ch)
+
+    plain = "".join(plain_chars)
+    low = plain.lower()
+    n = len(needle)
+
+    # Find non-overlapping match spans in plain-text coordinates.
+    spans = []
+    start = 0
+    while True:
+        i = low.find(needle, start)
+        if i < 0:
+            break
+        spans.append((i, i + n))
+        start = i + n
+    if not spans:
+        return line
+
+    # Mark the token immediately before each match's first char to be preceded
+    # by HIGHLIGHT_ON, and the token of the match's last char to be followed by
+    # HIGHLIGHT_OFF.
+    on_before = {}   # token_idx -> True (emit HIGHLIGHT_ON before this token)
+    off_after = {}   # token_idx -> True (emit HIGHLIGHT_OFF after this token)
+    for s, e in spans:
+        on_before[char_token_idx[s]] = True
+        off_after[char_token_idx[e - 1]] = True
+
+    out = []
+    for idx, (kind, s) in enumerate(tokens):
+        if idx in on_before:
+            out.append(HIGHLIGHT_ON)
+        out.append(s)
+        if idx in off_after:
+            out.append(HIGHLIGHT_OFF)
+    return "".join(out)
+
+
 def build_folder_entries(base_dir, folder, colour_cfg, exclude=None, limit=None,
                          max_subject=0, metadata=None, show_next_action=False,
                          accounts=None):
@@ -302,7 +398,8 @@ def search_report(base_dir, query, colour_cfg, accounts=None,
     Every segment is searched in the same order as the full report
     (triage, actionable, delegated, reference, archive), and matching entries
     are printed under their folder header, in the same colour/format `gtd list`
-    would use. Unlike the printed report, the archive is searched in full (the
+    would use, with the matched term highlighted (reverse video) when colour is
+    enabled. Unlike the printed report, the archive is searched in full (the
     archive_n display cap is not applied) so a match is never hidden. Returns
     the number of matching entries.
 
@@ -312,6 +409,7 @@ def search_report(base_dir, query, colour_cfg, accounts=None,
     """
     common = dict(accounts=accounts, max_subject=max_subject, metadata=metadata)
     needle = query.lower()
+    enabled = colour_cfg[2]
     total = 0
 
     # (folder, show_next_action) — every segment, archive uncapped (limit=None).
@@ -334,7 +432,9 @@ def search_report(base_dir, query, colour_cfg, accounts=None,
         print(f"\n=== {folder} ({len(matches)} match"
               f"{'es' if len(matches) != 1 else ''}) ===")
         for block in matches:
-            print(block + "\n")
+            # Highlight the matched term (only when colour is enabled, so plain
+            # piped output stays free of escape codes).
+            print(highlight_matches(block, query, enabled) + "\n")
         total += len(matches)
 
     if total == 0:

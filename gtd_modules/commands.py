@@ -422,10 +422,11 @@ COMMANDS
 
     search <text>
         Search the full report (what `gtd.py list` prints) for <text> and show
-        the matching email entries. The words after `search` are joined into a
-        single query, so the match is on the literal string — spaces, "#", and
-        "@" included — not on separate words; matching is case-insensitive.
-        Read-only: does not ingest 01-input or move anything. Examples:
+        the matching email entries, with the matched text highlighted. The words
+        after `search` are joined into a single query, so the match is on the
+        literal string — spaces, "#", and "@" included — not on separate words;
+        matching is case-insensitive. Read-only: does not ingest 01-input or
+        move anything. Examples:
             python3 gtd.py search project pudding
             python3 gtd.py search "#quick"
             python3 gtd.py search jane@example.com

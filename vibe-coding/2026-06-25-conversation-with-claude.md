@@ -112,3 +112,62 @@ I refactored `report.py` so the per-email block builder (`build_folder_entries`)
 I tested multi-word literal matching, case-insensitivity, `#`/`@` queries, cross-folder and uncapped-archive matches, the no-match and empty-query paths, and confirmed no ANSI leaks when piped — all behaving as intended. All files retain their single trailing newline, and markdown edits were confined to the changed lines.
 
 _(Attached: all other files modified in this commit.)_
+
+## 5. User request
+
+In the output, can we have the search term highlighted some way?
+
+## 6. LLM response
+
+Let me look at how colourize and the report blocks work so I can add highlighting that fits the existing ANSI conventions (especially the per-line re-application needed for `less -R`).Now I need to think about the highlighting carefully. The blocks are already colourized with per-line ANSI codes (a colour code at the start of each line, reset at the end). The search needs to highlight the matched substring *within* that already-colourized text.
+
+The challenge: the query matches against `strip_ansi(block)`, but the actual block has ANSI codes interspersed. A naive `.replace()` on the colourized text won't work because the match may be split by injected codes, and the match position in plain text ≠ position in colourized text. Also, case-insensitive matching means I must preserve the original casing while wrapping it.
+
+The robust approach: highlight on the **plain** (ANSI-stripped) block, then re-colourize. But the original block has multiple colours (body in age-colour, account label in its own colour, PINNED in magenta) — re-colourizing would lose that distinction.
+
+A cleaner approach: insert the highlight into the already-colourized block by mapping plain-text offsets to colourized-text offsets. I'll walk the colourized string, tracking position in the stripped version, and wrap matched regions with a highlight code + a "restore" sequence. Since matches can span the per-line structure, I'll do this per-line to keep things sane and consistent with the existing per-line colour model.
+
+Let me design a `highlight` function in report.py that, given a colourized block and the query, wraps each case-insensitive occurrence with a reverse-video (or bold) highlight, restoring the surrounding colour afterward. I'll use reverse-video (`\033[7m`) which stands out regardless of the underlying colour, and after the match re-emit the line's leading colour code so the rest of the line keeps its colour.
+
+Let me reconsider: per-line, each line is `{start}{content}{reset}` where start is the colour code (or empty if disabled). Within `content` there can be a nested coloured span (account label/PINNED have their own `{start2}...{reset}` inside). Matches could overlap those. To keep it correct and simple, I'll operate on each line: strip ANSI to get plain text, find match spans in plain text, then rebuild the line by re-emitting the line's base colour and wrapping matched plain-text runs with highlight codes. This drops any *nested* inner colour (account label colour) only when highlighting touches that line — acceptable, and actually the highlight should win there anyway. But to avoid regressions on non-matching lines, I'll only rewrite lines that actually contain a match; untouched lines pass through unchanged with all their original nesting.
+
+Let me check what a colourized block with an account label looks like to confirm.Now I see the structure clearly. Each line is either `{colour}text{reset}` or contains a nested span (the `[Work]` line has leading spaces *outside* the colour, then `{yellow}[Work]{reset}`).
+
+My approach: highlight per-line, only rewriting lines that contain a match. For a matching line, I'll:
+1. Tokenize the line into (text, active_colour) runs by walking ANSI codes.
+2. Find query matches in the plain text.
+3. Rebuild, wrapping matched regions with reverse-video, restoring the colour active at that position afterward.
+
+This preserves nested colours on matched lines too. Let me write a robust `highlight_ansi_line` function. I'll use reverse video (`\033[7m`) reset by `\033[27m` so it doesn't clobber the foreground colour — then I don't even need to restore colour, since `\033[27m` only turns off reverse video. That's the cleanest: wrap match in `\033[7m` … `\033[27m`, leaving any foreground colour codes intact around it.
+
+But the match position is in *plain* text; I need to map it onto the *raw* text with ANSI codes interspersed, inserting the highlight codes at the right raw offsets without breaking existing codes. Let me implement by walking the raw string, building plain text alongside a list of (raw_index ranges that are literal chars), then computing insertion points.
+
+Simpler and reliable: split the raw line into a sequence of items, each either an ANSI code (opaque, passes through) or a single literal char. Walk it, maintaining plain-text index; when plain index enters/exits a match span, emit the highlight-on/off code. Let me implement that.Now wire it into `search_report`. There's a subtlety: highlighting should be applied whether or not colour is enabled? The user wants the term highlighted "some way." If colour is disabled (piping to a plain file/non-TTY), emitting reverse-video codes would put escape sequences into otherwise-clean output, which breaks the project's strong convention that non-colour output is clean text. So I'll gate highlighting on the same `enabled` (colour) decision. When colour is off, no highlight — consistent with the rest of the tool. Let me apply it in `search_report`.Also update the search_report docstring to mention highlighting.Now let me test the highlighting thoroughly — including a match that crosses the underlying colour spans (e.g. matching part of the account label, or an email address that appears in a coloured `With:` line).Highlighting works correctly in all cases:
+- `pudding` highlighted mid-line inside the red age colour — `^[[7mPudding^[[27m`, with the surrounding `^[[31m`/`^[[0m` intact.
+- `jane@example.com` highlighted in the coloured `With:` line *and* in the uncoloured `next:` line (matched in both places).
+- `#quick` highlighted on the uncoloured next-action line.
+
+The reverse-video reset (`27m`) correctly leaves the surrounding foreground colour untouched. Now let me verify the edge cases: no escape codes leak when colour is off, multiple occurrences on one line, case-insensitive highlight preserves original casing, and a match spanning the account-label colour boundary.All edge cases pass:
+- Colour off → zero escape codes (clean piped output preserved).
+- Case-insensitive: searching `PROJECT` highlights the original-cased `Project`.
+- The `Work` match inside the yellow `[Work]` label highlights correctly (`^[[33m[^[[7mWork^[[27m]^[[0m`) — the yellow colour survives around the reverse-video span.
+
+Now let me update the docs. README and MAINTENANCE should note the highlighting. Let me update the README search paragraph and MAINTENANCE (command table, §6 flow, §7 conventions, §9 test).The README search example block has a colour note? Let me check whether I should mention that highlighting needs colour. The README already documents the `FORCE_COLOR=1 ... | less -R` pattern. Let me add a short note after the search examples.Now MAINTENANCE: command table row, §6 flow, §7 conventions, §9 test.The `gtd help` and zsh completion don't need changes (highlighting is an output detail, not a CLI surface change), though let me update the `search` help text to mention it briefly for discoverability.All good. Let me do one final end-to-end visual check of how it actually renders in a terminal (interpreting the escape codes) to confirm the highlight looks right.Working as intended — the matched phrase "Project Pudding" is wrapped in reverse-video while keeping the red age colour around it. Presenting the updated files.Done. The matched term is now highlighted in **reverse video** in the `search` output.
+
+**How it works**
+
+I added `highlight_matches` (and a per-line helper `_highlight_line`) to `report.py`. The tricky part is that each report block is *already* full of ANSI colour codes (age colour on the body, the account label in its own colour, the PINNED marker in magenta), so a naive find-and-replace would break. Instead the helper:
+
+1. Walks each line into a token stream of ANSI codes (opaque) and individual literal characters, reconstructing the plain text alongside.
+2. Finds the case-insensitive match spans in that plain text.
+3. Splices reverse-video markers (`\033[7m` … `\033[27m`) back in at the matching character positions.
+
+I used reverse video rather than a foreground colour for two reasons: it stands out against *any* underlying colour (red/yellow/green body, coloured account label, magenta pinned), and its specific reset (`27m`) turns off only the reverse video, leaving the surrounding foreground colour intact. So a match inside the red subject line stays red with just the matched run inverted.
+
+**Consistency with the rest of the tool**
+
+Highlighting is gated on the same colour-enabled decision as everything else, so a terminal (or `FORCE_COLOR=1 … | less -R`) shows the highlight while piping to a plain file stays clean, escape-free text — preserving the project's strong no-colour-when-piped convention. Matching is done per line, mirroring the existing per-line colour model.
+
+I verified: mid-word matches inside coloured lines, matches in uncoloured lines, matches that touch the coloured account label, multiple occurrences, case-insensitive matching that preserves the original casing, and zero escape codes when colour is off. Docs (README, MAINTENANCE §6/§7/§9) and the `gtd help` text were updated; the CLI surface and zsh completion are unchanged since this is purely an output detail. All files keep their trailing newline.
+
+_(Attached: all other files modified in this commit.)_

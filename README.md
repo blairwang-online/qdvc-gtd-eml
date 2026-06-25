@@ -55,15 +55,19 @@ Editable fields: `general_notes`, `project`, `next_action`, `flags`
 (`message_ref` is read-only).
 
 `search` looks through the full report (everything `gtd.py list` prints) for a
-string and shows the matching entries. The words after `search` are joined into
-a single query, so it matches the literal string — spaces, `#`, and `@`
-included — and the match is case-insensitive:
+string and shows the matching entries, with the matched text highlighted. The
+words after `search` are joined into a single query, so it matches the literal
+string — spaces, `#`, and `@` included — and the match is case-insensitive:
 
 ```bash
 python3 gtd.py search project pudding
 python3 gtd.py search "#quick"
 python3 gtd.py search jane@example.com
 ```
+
+The highlight is drawn with terminal colour, so it shows on a terminal (or via
+`FORCE_COLOR=1 python3 gtd.py search … | less -R`); piping to a plain file
+yields clean, un-highlighted text like the rest of the tool.
 
 `close` archives an email and records what closed it. It refuses if the email
 is already in `06-archive/`; otherwise it moves the email there and sets its

@@ -35,7 +35,7 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 | Command | Purpose |
 | --- | --- |
 | `python3 gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
-| `python3 gtd.py search <text>` | Search the full report for a literal, case-insensitive string (joined from all words after `search`, `#`/`@` included) and print the matching entries. Read-only: no ingest, no moves. |
+| `python3 gtd.py search <text>` | Search the full report for a literal, case-insensitive string (joined from all words after `search`, `#`/`@` included) and print the matching entries with the matched text highlighted. Read-only: no ingest, no moves. |
 | `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python3 gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
@@ -215,7 +215,11 @@ ordinary characters and need no special handling. `search` reconciles
 `metadata.csv` (`sync_metadata`) so flags/next_action are current, but unlike
 `list` it does **not** ingest `01-input` or move anything. It searches the
 archive in **full** — the `archive_report_n` display cap is deliberately not
-applied, so a match is never hidden behind the cap.
+applied, so a match is never hidden behind the cap. Each matching block is then
+passed through `report.highlight_matches()`, which splices reverse-video markers
+(`\033[7m` … `\033[27m`) around every occurrence of the query so it stands out.
+Highlighting is applied only when colour is enabled, so piping to a plain file
+still yields clean text.
 
 **`view`** (`commands.cmd_view`) — `fs.find_eml()` to locate the file across all
 folders, then `preview.render()`.
@@ -332,6 +336,15 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
   you change how a block is rendered (new trailing line, different field), it
   becomes searchable automatically — but if you add colour/escape output that
   shouldn't be matched, make sure `strip_ansi` still removes it.
+- `search`'s highlight (`highlight_matches` / `_highlight_line`) works on the
+  already-coloured block: it walks each line into ANSI-code and literal-char
+  tokens, finds matches in the plain text, and wraps them with reverse-video
+  on/off codes (`\033[7m`/`\033[27m`). Reverse video (not a foreground colour)
+  is used so the highlight survives over any underlying age/account/pinned
+  colour and the specific `27m` reset leaves that colour intact. Matching is
+  per line, mirroring the per-line colour model (a query can't highlight across
+  a line break). Like all colour here it is gated on the colour-enabled flag,
+  so plain piped output carries no escape codes.
 
 ### Preview (`preview.py`)
 - Output is markdown-friendly: an H1 title, a blank line, a ```` ``` ```` fenced
@@ -412,6 +425,9 @@ Useful checks when touching the relevant area:
   independently); upper/lower case is ignored; `#tag` and `addr@host` queries
   match those substrings; a query in only the archive still matches even past
   the `archive_report_n` cap; a no-match query prints a single "No emails…" line.
+  With `FORCE_COLOR=1 … | cat -v` the matched text should be wrapped in
+  `^[[7m`/`^[[27m`, the surrounding age/account colour should be preserved, and
+  the plain (no-colour) run should contain no escape codes at all.
 - **close**: closing an email not yet archived should move it to `06-archive`
   and set `next_action` to `Closed with <other.eml>`; closing one already in
   `06-archive` should exit 1 and change nothing; the `with` keyword is optional.
