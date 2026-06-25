@@ -1,6 +1,7 @@
 """
-Subcommand implementations for the `gtd.py` CLI: list, view, alloc, close,
-pin, unpin, metadata, help. Each returns a process exit code (0 = success).
+Subcommand implementations for the `gtd.py` CLI: list, search, view, alloc,
+close, pin, unpin, metadata, help. Each returns a process exit code
+(0 = success).
 
 `gtd.py` itself is just an argument dispatcher; the real work lives here.
 """
@@ -15,7 +16,7 @@ from .emailutil import read_eml_message
 from .ingest import ingest_input_files
 from .metadata import load_metadata, sync_metadata
 from .preview import render
-from .report import print_report
+from .report import print_report, search_report
 
 
 def cmd_list(argv):
@@ -169,6 +170,46 @@ def cmd_alloc(argv):
         return 1
 
     print(f"Moved {os.path.basename(src_path)}: {src_folder} -> {dest_folder}")
+    return 0
+
+
+def cmd_search(argv):
+    """
+    `gtd.py search <text>` — search the full `gtd.py list` report for <text>
+    and print the email entries that match. All the words after `search` are
+    joined back into a single query (with single spaces), so the match is on the
+    literal string — spaces, `#`, and `@` included — not on separate words. The
+    search is case-insensitive.
+
+    Read-only: it reconciles metadata.csv with what's on disk (so flags and
+    next_action are current) but does NOT ingest 01-input or move anything.
+
+    Example:
+        cmd_search(["project", "pudding"])  # -> entries containing "project pudding"
+        cmd_search(["#quick"])              # -> entries containing "#quick"
+        cmd_search(["jane@example.com"])    # -> entries with that address
+    """
+    if not argv:
+        print("usage: gtd.py search <text>", file=sys.stderr)
+        return 2
+
+    query = " ".join(argv)
+    if not query.strip():
+        print("usage: gtd.py search <text>", file=sys.stderr)
+        return 2
+
+    cfg = cfg_mod.load_config()
+    base_dir = cfg["working_directory"]
+    colour_enabled = cfg_mod.should_use_colour(cfg, sys.stdout)
+    colour_cfg = (cfg["green_max_days"], cfg["yellow_max_days"], colour_enabled)
+
+    fs.ensure_folders(base_dir)
+    sync_metadata(base_dir)
+    metadata = load_metadata(base_dir)
+    search_report(base_dir, query, colour_cfg,
+                  accounts=cfg["my_own_accounts"],
+                  max_subject=cfg["max_subject_chars"],
+                  metadata=metadata)
     return 0
 
 
@@ -378,6 +419,16 @@ COMMANDS
         Show each workflow folder and how many emails it currently holds,
         plus a total:
             python3 gtd.py stats
+
+    search <text>
+        Search the full report (what `gtd.py list` prints) for <text> and show
+        the matching email entries. The words after `search` are joined into a
+        single query, so the match is on the literal string — spaces, "#", and
+        "@" included — not on separate words; matching is case-insensitive.
+        Read-only: does not ingest 01-input or move anything. Examples:
+            python3 gtd.py search project pudding
+            python3 gtd.py search "#quick"
+            python3 gtd.py search jane@example.com
 
     view <file.eml>
         Preview a single email — headers, attachments, and body (base64 is

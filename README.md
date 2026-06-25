@@ -30,6 +30,7 @@ keeps in sync.
 ```bash
 python3 gtd.py list                       # ingest new files + print the report
 python3 gtd.py list <folder>              # show just one folder (e.g. actionable)
+python3 gtd.py search <text>              # find report entries matching <text>
 python3 gtd.py stats                      # count emails in each folder
 python3 gtd.py view <file.eml>            # preview one email (headers + body)
 python3 gtd.py alloc <file.eml> <dest>    # move an email to another folder
@@ -52,6 +53,17 @@ python3 gtd.py metadata <file.eml> set next_action = "Reply by Friday"
 
 Editable fields: `general_notes`, `project`, `next_action`, `flags`
 (`message_ref` is read-only).
+
+`search` looks through the full report (everything `gtd.py list` prints) for a
+string and shows the matching entries. The words after `search` are joined into
+a single query, so it matches the literal string — spaces, `#`, and `@`
+included — and the match is case-insensitive:
+
+```bash
+python3 gtd.py search project pudding
+python3 gtd.py search "#quick"
+python3 gtd.py search jane@example.com
+```
 
 `close` archives an email and records what closed it. It refuses if the email
 is already in `06-archive/`; otherwise it moves the email there and sets its

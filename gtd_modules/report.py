@@ -157,25 +157,31 @@ def file_report_line(base_dir, folder, filename, exclude=None,
     return "\n".join(rows), trailing, date_dt, elapsed
 
 
-def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
-                  max_subject=0, metadata=None, show_next_action=False,
-                  accounts=None):
+def strip_ansi(text):
     """
-    Print a report block for a folder, colour-coding each entry by elapsed days.
-    If limit is set, show only the most recent `limit` files (by email date).
-    `colour_cfg` is (green_max, yellow_max, enabled); `exclude` is a list of
-    correspondent addresses to omit; `max_subject` truncates subjects;
-    `metadata` is the dict from load_metadata; `show_next_action` toggles the
-    next_action branch line (off for the archive); `accounts` is the
-    my_own_accounts list used to label which account received each email.
-
-    Entries flagged "pinned" in metadata float to the top of their section
-    (and are never dropped by the archive `limit`).
+    Remove ANSI SGR colour escape sequences from text, leaving plain characters.
+    Used by `search` so matching ignores colour codes injected for display.
 
     Example:
-        report_folder("/home/me/gtd", "03-actionable", (2, 14, True),
-                      metadata=meta, show_next_action=True, accounts=accts)
-        # -> prints colour-coded actionable entries with account + next-action
+        strip_ansi("\\033[32mhi\\033[0m")  # -> "hi"
+    """
+    return re.sub(r"\033\[[0-9;]*m", "", text)
+
+
+def build_folder_entries(base_dir, folder, colour_cfg, exclude=None, limit=None,
+                         max_subject=0, metadata=None, show_next_action=False,
+                         accounts=None):
+    """
+    Build the ordered list of report blocks for one folder WITHOUT printing.
+    Returns a list of (pinned, date_dt, block) tuples in final display order
+    (pinned floated to the top, otherwise oldest -> newest), with the archive
+    `limit` applied exactly as in the printed report. `report_folder` prints
+    these; `search` scans them. Arguments mirror `report_folder`.
+
+    Example:
+        build_folder_entries("/home/me/gtd", "03-actionable", (2, 14, True),
+                             metadata=meta, show_next_action=True)
+        # -> [(False, date_dt, "2026-06-03  (20d)   Subject\\n..."), ...]
     """
     green_max, yellow_max, enabled = colour_cfg
     metadata = metadata or {}
@@ -209,6 +215,34 @@ def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
     # Float pinned entries to the top of the section (stable: preserves the
     # date order established above within each group).
     entries.sort(key=lambda t: not t[0])
+    return entries
+
+
+def report_folder(base_dir, folder, colour_cfg, exclude=None, limit=None,
+                  max_subject=0, metadata=None, show_next_action=False,
+                  accounts=None):
+    """
+    Print a report block for a folder, colour-coding each entry by elapsed days.
+    If limit is set, show only the most recent `limit` files (by email date).
+    `colour_cfg` is (green_max, yellow_max, enabled); `exclude` is a list of
+    correspondent addresses to omit; `max_subject` truncates subjects;
+    `metadata` is the dict from load_metadata; `show_next_action` toggles the
+    next_action branch line (off for the archive); `accounts` is the
+    my_own_accounts list used to label which account received each email.
+
+    Entries flagged "pinned" in metadata float to the top of their section
+    (and are never dropped by the archive `limit`).
+
+    Example:
+        report_folder("/home/me/gtd", "03-actionable", (2, 14, True),
+                      metadata=meta, show_next_action=True, accounts=accts)
+        # -> prints colour-coded actionable entries with account + next-action
+    """
+    files = fs.list_eml_files(base_dir, folder)
+    entries = build_folder_entries(
+        base_dir, folder, colour_cfg, exclude=exclude, limit=limit,
+        max_subject=max_subject, metadata=metadata,
+        show_next_action=show_next_action, accounts=accounts)
 
     print(f"\n=== {folder} ({len(files)} file{'s' if len(files) != 1 else ''}) ===")
     if not entries:
@@ -256,3 +290,53 @@ def print_report(base_dir, archive_n, colour_cfg, accounts=None,
                       show_next_action=show_next_action,
                       limit=effective_limit, **common)
 
+
+def search_report(base_dir, query, colour_cfg, accounts=None,
+                  max_subject=0, metadata=None):
+    """
+    Search the full `gtd list` report for `query` and print the email entries
+    that match. Matching is a case-insensitive substring test over the plain
+    (ANSI-stripped) text of each rendered entry, so the literal query — spaces,
+    `#`, `@` and all — is matched verbatim rather than split into words.
+
+    Every segment is searched in the same order as the full report
+    (triage, actionable, delegated, reference, archive), and matching entries
+    are printed under their folder header, in the same colour/format `gtd list`
+    would use. Unlike the printed report, the archive is searched in full (the
+    archive_n display cap is not applied) so a match is never hidden. Returns
+    the number of matching entries.
+
+    Example:
+        search_report("/home/me/gtd", "#quick", (2, 14, True), metadata=meta)
+        # -> prints each entry whose rendered text contains "#quick", returns N
+    """
+    common = dict(accounts=accounts, max_subject=max_subject, metadata=metadata)
+    needle = query.lower()
+    total = 0
+
+    # (folder, show_next_action) — every segment, archive uncapped (limit=None).
+    segments = [
+        (config.TRIAGE_DIR, True),
+        (config.ACTIONABLE_DIR, True),
+        (config.DELEGATED_DIR, True),
+        (config.REFERENCE_DIR, True),
+        (config.ARCHIVE_DIR, False),
+    ]
+
+    for folder, show_next_action in segments:
+        entries = build_folder_entries(
+            base_dir, folder, colour_cfg, limit=None,
+            show_next_action=show_next_action, **common)
+        matches = [block for _, _, block in entries
+                   if needle in strip_ansi(block).lower()]
+        if not matches:
+            continue
+        print(f"\n=== {folder} ({len(matches)} match"
+              f"{'es' if len(matches) != 1 else ''}) ===")
+        for block in matches:
+            print(block + "\n")
+        total += len(matches)
+
+    if total == 0:
+        print(f"No emails match {query!r}.")
+    return total

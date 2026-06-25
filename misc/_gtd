@@ -80,6 +80,7 @@ _gtd() {
     local -a subcommands
     subcommands=(
         'list:Print the status report (optionally one folder)'
+        'search:Find report entries matching some text'
         'stats:Show how many emails are in each folder'
         'view:Preview a single email'
         'alloc:Move an email to another folder'

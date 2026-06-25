@@ -35,6 +35,7 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 | Command | Purpose |
 | --- | --- |
 | `python3 gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
+| `python3 gtd.py search <text>` | Search the full report for a literal, case-insensitive string (joined from all words after `search`, `#`/`@` included) and print the matching entries. Read-only: no ingest, no moves. |
 | `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python3 gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
@@ -84,7 +85,7 @@ gtd_modules/
     naming.py             # filename-convention generation
     ingest.py             # rename + move 01-input → 02-triage
     metadata.py           # metadata.csv load/sync + per-field get/set
-    report.py             # colour-coded status report
+    report.py             # colour-coded status report + `search` over its entries
     preview.py            # markdown-friendly single-message render
 misc/
     _gtd                  # zsh (oh-my-zsh) Tab-completion for the `gtd` command
@@ -203,6 +204,19 @@ report.
 `fs.list_eml_files()` per folder, printing each count and a total. Read-only;
 does not ingest or modify anything.
 
+**`search`** (`commands.cmd_search`) — joins all words after `search` into one
+query (so `gtd.py search project pudding` matches the literal `project pudding`,
+not two separate words), then calls `report.search_report()`. That helper builds
+each segment's entries with `report.build_folder_entries()` (the same block
+builder `report_folder` prints), strips ANSI with `report.strip_ansi()`, and
+keeps blocks whose lower-cased plain text contains the lower-cased query.
+Because the match is a substring test on rendered text, `#` and `@` are just
+ordinary characters and need no special handling. `search` reconciles
+`metadata.csv` (`sync_metadata`) so flags/next_action are current, but unlike
+`list` it does **not** ingest `01-input` or move anything. It searches the
+archive in **full** — the `archive_report_n` display cap is deliberately not
+applied, so a match is never hidden behind the cap.
+
 **`view`** (`commands.cmd_view`) — `fs.find_eml()` to locate the file across all
 folders, then `preview.render()`.
 
@@ -312,6 +326,12 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
   triage/actionable/delegated/reference but **not** the archive.
 - `04-delegated` is treated exactly like `03-actionable` (same report
   behaviour); it's just a separate filing destination.
+- `report_folder` and `search` both build their per-email blocks via
+  `build_folder_entries`, so a match found by `search` looks exactly like the
+  same entry under `list`. `search` matches against `strip_ansi(block)`, so if
+  you change how a block is rendered (new trailing line, different field), it
+  becomes searchable automatically — but if you add colour/escape output that
+  shouldn't be matched, make sure `strip_ansi` still removes it.
 
 ### Preview (`preview.py`)
 - Output is markdown-friendly: an H1 title, a blank line, a ```` ``` ```` fenced
@@ -367,6 +387,7 @@ mkdir -p data/01-input          # point working_directory at ./data in config.ym
 # drop a sample .eml into data/01-input, then:
 python3 gtd.py list              # should ingest, write metadata.csv, print report
 python3 gtd.py list delegated    # just the delegated segment
+python3 gtd.py search pudding    # entries whose report text contains "pudding"
 python3 gtd.py stats             # per-folder counts + total
 python3 gtd.py view <the-new-filename>
 python3 gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
@@ -387,6 +408,10 @@ Useful checks when touching the relevant area:
   `NO_COLOR=1 python3 gtd.py list | cat -v` emits zero escape sequences.
 - **alloc**: moving to a folder the file is already in should no-op; an
   unknown destination should exit 2; a missing file should exit 1.
+- **search**: a multi-word query matches the literal phrase (not the words
+  independently); upper/lower case is ignored; `#tag` and `addr@host` queries
+  match those substrings; a query in only the archive still matches even past
+  the `archive_report_n` cap; a no-match query prints a single "No emails…" line.
 - **close**: closing an email not yet archived should move it to `06-archive`
   and set `next_action` to `Closed with <other.eml>`; closing one already in
   `06-archive` should exit 1 and change nothing; the `with` keyword is optional.
