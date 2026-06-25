@@ -39,7 +39,7 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 | `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python3 gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
-| `python3 gtd.py close <file.eml> with <other.eml>` | Archive an email and record what closed it. Refuses if it is already in `06-archive`; otherwise moves it there and sets `next_action` to `Closed with <other.eml>`. The word `with` is optional; `<other.eml>` need not exist. |
+| `python3 gtd.py close <file.eml> with <other.eml>` | Archive an email and record what closed it. Refuses if it is already in `06-archive`; otherwise moves it there and sets `next_action` to `Closed with <other.eml>`. The word `with` is optional; `<other.eml>` must itself exist in the workflow (errors with no changes otherwise). |
 | `python3 gtd.py pin <file.eml>` / `unpin <file.eml>` | Add or remove the `pinned` token in the email's `flags` metadata field. |
 | `python3 gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
 | `python3 gtd.py help` | Print the command overview. |
@@ -231,14 +231,17 @@ without touching `metadata.csv` — metadata keys off the filename, which `alloc
 never changes, so no resync is needed.
 
 **`close`** (`commands.cmd_close`) — parses `<file> [with] <other>` (the literal
-`with` is optional), then `fs.find_eml()` locates the file. If it is already in
-`06-archive` the command refuses (exit 1) and does nothing else. Otherwise it
-`fs.move_eml()`s the file into `06-archive` and calls
+`with` is optional), then `fs.find_eml()` locates the file. Next it
+`fs.find_eml()`s `<other>` too: it **must** exist somewhere in the workflow, and
+this check runs *before* anything is moved or written, so closing with a typo'd
+or missing `<other>` exits 1 and leaves everything untouched. If the file being
+closed is already in `06-archive` the command also refuses (exit 1). Only once
+both files resolve does it `fs.move_eml()` the file into `06-archive` and call
 `metadata.set_metadata_value()` to set `next_action` to `Closed with <other>`.
-`<other>` is normalised to end in `.eml` but is otherwise recorded verbatim and
-is **not** required to exist in the workflow. Because `set_metadata_value` runs
-a full `sync_metadata` first, the just-moved file is reconciled before its
-`next_action` is written.
+Both filenames may be given with or without the `.eml` extension (`find_eml`
+appends it); the canonical on-disk name of `<other>` is what gets recorded.
+Because `set_metadata_value` runs a full `sync_metadata` first, the just-moved
+file is reconciled before its `next_action` is written.
 
 **`pin` / `unpin`** (`commands.cmd_pin` / `cmd_unpin`, sharing
 `commands._toggle_flag`) — `fs.find_eml()` locates the file, then
@@ -430,7 +433,9 @@ Useful checks when touching the relevant area:
   the plain (no-colour) run should contain no escape codes at all.
 - **close**: closing an email not yet archived should move it to `06-archive`
   and set `next_action` to `Closed with <other.eml>`; closing one already in
-  `06-archive` should exit 1 and change nothing; the `with` keyword is optional.
+  `06-archive` should exit 1 and change nothing; closing `with` a non-existent
+  `<other.eml>` should exit 1 and leave the source file and its metadata
+  untouched; the `with` keyword is optional.
 - **pin/unpin**: `pin` then `pin` again should report the second as a no-op;
   `unpin` should drop only the `pinned` token, leaving any other flags intact.
 - **metadata**: `set` then `get` should round-trip; setting a read-only field

@@ -221,8 +221,10 @@ def cmd_close(argv):
     "Closed with <other.eml>".
 
     The literal word "with" between the two filenames is optional; both .eml
-    extensions are optional. <other.eml> is recorded verbatim and need not exist
-    in the workflow.
+    extensions are optional. <other.eml> must itself exist somewhere in the
+    workflow; if it does not, the command errors immediately and nothing is
+    moved or modified. The canonical on-disk name of <other.eml> is what gets
+    recorded.
 
     Example:
         cmd_close(["abcde.eml", "with", "xyz.eml"])
@@ -237,15 +239,21 @@ def cmd_close(argv):
         print("usage: gtd.py close <file.eml> with <other.eml>", file=sys.stderr)
         return 2
 
-    if not other.lower().endswith(".eml"):
-        other += ".eml"
-
     base_dir = cfg_mod.load_config()["working_directory"]
     src_path = fs.find_eml(base_dir, filename)
     if src_path is None:
         print(f"error: '{filename}' not found in any GTD folder under {base_dir}",
               file=sys.stderr)
         return 1
+
+    # The email we are closing WITH must actually exist; verify before moving or
+    # touching any metadata so a typo leaves everything untouched.
+    other_path = fs.find_eml(base_dir, other)
+    if other_path is None:
+        print(f"error: '{other}' not found in any GTD folder under {base_dir}; "
+              f"nothing was changed", file=sys.stderr)
+        return 1
+    other = os.path.basename(other_path)
 
     canonical = os.path.basename(src_path)
     src_folder = os.path.basename(os.path.dirname(src_path))
@@ -459,7 +467,8 @@ COMMANDS
         Archive an email and record what closed it. Refuses if the email is
         already in 06-archive; otherwise moves it there and sets its next_action
         to "Closed with <other.eml>". The word "with" is optional, as are the
-        .eml extensions; <other.eml> need not exist in the workflow.
+        .eml extensions. <other.eml> must itself exist in the workflow; if it
+        does not, the command errors immediately and nothing is moved or changed.
         Examples:
             python3 gtd.py close 2026-06-03-project-pudding.eml with 2026-06-10-reply.eml
             python3 gtd.py close 2026-06-03-project-pudding 2026-06-10-reply

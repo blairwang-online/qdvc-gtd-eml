@@ -171,3 +171,32 @@ Highlighting is gated on the same colour-enabled decision as everything else, so
 I verified: mid-word matches inside coloured lines, matches in uncoloured lines, matches that touch the coloured account label, multiple occurrences, case-insensitive matching that preserves the original casing, and zero escape codes when colour is off. Docs (README, MAINTENANCE §6/§7/§9) and the `gtd help` text were updated; the CLI surface and zsh completion are unchanged since this is purely an output detail. All files keep their trailing newline.
 
 _(Attached: all other files modified in this commit.)_
+
+## 7. User request
+
+At the moment it is possible to run `gtd close abc.eml with xyz.eml` even if `xyz.eml` does not actually exist. Please change it so that attempting to close with an non-existent EML file results in an error immediately; do not move `abc.eml` and do not update its metadata.
+
+## 8. LLM response
+
+Let me look at the current `cmd_close` implementation to make the change precisely.I'll add a `find_eml` check for `other` right after resolving the source file (and before any move/metadata change). I'll resolve `other` to its canonical name too, so the recorded next_action uses the real on-disk filename. Let me update the docstring and the logic.Note I removed the manual `.eml` suffixing since `fs.find_eml` already handles the optional extension. Let me confirm `find_eml` accepts names without `.eml`.Good — `find_eml` handles the optional `.eml` extension, so removing the manual suffixing is correct and the `other` argument now works with or without the extension. Now let me test.All correct:
+- Non-existent `other` → exit 1, `abc.eml` stays in actionable, `next_action` unchanged (empty).
+- Existing `other` → succeeds, records the canonical name `2026-06-10-xyz.eml`.
+- Works without the `.eml` extension and without the `with` keyword, and the recorded name is normalized to the canonical on-disk form.
+
+Now let me update the docs. The previous behavior ("need not exist", "recorded verbatim") is documented in README, MAINTENANCE, the HELP_TEXT, and the close help. Let me find and fix each.Now the HELP_TEXT close entry and the testing note. Let me find them.Now the §9 close test note in MAINTENANCE.Now check README for any close description that says the other need not exist.The zsh completion already completes `.eml` filenames for the `other` position, which now matches the requirement that it must exist — so no change needed there. Let me verify trailing newlines and run a final confirmation including the help output.Everything checks out. Presenting the updated files.Done. `gtd close abc.eml with xyz.eml` now requires `xyz.eml` to exist.
+
+**The change**
+
+In `cmd_close`, right after resolving the source file and *before* any move or metadata write, I added a `fs.find_eml()` lookup for `other`. If it returns `None`, the command prints an error to stderr and exits 1, leaving `abc.eml` in place and its metadata untouched. Only when both files resolve does it proceed to move and record. The check is positioned before the move so a typo can't half-complete the operation.
+
+A small bonus from reusing `fs.find_eml` for `other`: I dropped the old manual `.eml`-suffixing (since `find_eml` already appends the extension), so `other` still works with or without `.eml`, and the recorded `next_action` now uses the canonical on-disk filename rather than whatever the user typed.
+
+**Verified behaviour**
+
+- Non-existent `other` → exit 1, source stays in `03-actionable`, `next_action` stays empty.
+- Existing `other` → succeeds and records the canonical name.
+- Still works without the `.eml` extension and without the `with` keyword.
+
+I updated the docstring, `gtd help` text, README, and MAINTENANCE (command table, §6 flow, §9 test note) to reflect that `<other.eml>` must exist. The zsh completion already offered only existing `.eml` files for that argument, so it needed no change. All files retain their trailing newline.
+
+_(Attached: all other files modified in this commit.)_

@@ -71,7 +71,9 @@ yields clean, un-highlighted text like the rest of the tool.
 
 `close` archives an email and records what closed it. It refuses if the email
 is already in `06-archive/`; otherwise it moves the email there and sets its
-`next_action` to `Closed with <other.eml>`:
+`next_action` to `Closed with <other.eml>`. The `<other.eml>` you close with
+must itself exist in the workflow — if it doesn't, the command errors and
+nothing is moved or changed:
 
 ```bash
 python3 gtd.py close 2026-06-03-project-pudding.eml with 2026-06-10-reply.eml
