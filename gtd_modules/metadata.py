@@ -119,3 +119,39 @@ def set_metadata_value(base_dir, filename, field, value):
             row = {"eml_filename": name}
             row.update({h: rows[name].get(h, "") for h in READABLE_FIELDS})
             writer.writerow(row)
+
+
+def add_flag(base_dir, filename, flag):
+    """
+    Add `flag` to the space-separated `flags` field for `filename` (a no-op if
+    it is already present). Returns True if the flag was added, False if it was
+    already there. Raises FileNotFoundError if the file is not in the workflow.
+
+    Example:
+        add_flag("/g", "2026-06-03-x.eml", "pinned")  # -> True (now flagged)
+    """
+    current = get_metadata_value(base_dir, filename, "flags") or ""
+    tokens = current.split()
+    if flag in tokens:
+        return False
+    tokens.append(flag)
+    set_metadata_value(base_dir, filename, "flags", " ".join(tokens))
+    return True
+
+
+def remove_flag(base_dir, filename, flag):
+    """
+    Remove `flag` from the space-separated `flags` field for `filename` (a no-op
+    if it is absent). Returns True if the flag was removed, False if it was not
+    present. Raises FileNotFoundError if the file is not in the workflow.
+
+    Example:
+        remove_flag("/g", "2026-06-03-x.eml", "pinned")  # -> True (un-flagged)
+    """
+    current = get_metadata_value(base_dir, filename, "flags") or ""
+    tokens = current.split()
+    if flag not in tokens:
+        return False
+    tokens = [t for t in tokens if t != flag]
+    set_metadata_value(base_dir, filename, "flags", " ".join(tokens))
+    return True

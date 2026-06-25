@@ -15,6 +15,9 @@ Commands (run `gtd.py help` for details):
     gtd.py stats                      show how many emails are in each folder
     gtd.py view <file.eml>            preview a single email
     gtd.py alloc <file.eml> <dest>    move an email to another folder
+    gtd.py close <file.eml> with <other.eml>   archive + record what closed it
+    gtd.py pin <file.eml>             add the "pinned" flag
+    gtd.py unpin <file.eml>           remove the "pinned" flag
     gtd.py metadata <file.eml> ...    get/set a metadata.csv field
     gtd.py help                       show the command overview
 
@@ -33,6 +36,9 @@ COMMANDS = {
     "stats": commands.cmd_stats,
     "view": commands.cmd_view,
     "alloc": commands.cmd_alloc,
+    "close": commands.cmd_close,
+    "pin": commands.cmd_pin,
+    "unpin": commands.cmd_unpin,
     "metadata": commands.cmd_metadata,
     "help": commands.cmd_help,
 }

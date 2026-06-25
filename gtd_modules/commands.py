@@ -1,6 +1,6 @@
 """
-Subcommand implementations for the `gtd.py` CLI: list, view, alloc, help.
-Each returns a process exit code (0 = success).
+Subcommand implementations for the `gtd.py` CLI: list, view, alloc, close,
+pin, unpin, metadata, help. Each returns a process exit code (0 = success).
 
 `gtd.py` itself is just an argument dispatcher; the real work lives here.
 """
@@ -172,6 +172,118 @@ def cmd_alloc(argv):
     return 0
 
 
+def cmd_close(argv):
+    """
+    `gtd.py close <file.eml> with <other.eml>` — archive an email and record
+    what closed it. Checks the email is not already in 06-archive (refusing if
+    it is), moves it there, and sets its metadata next_action to
+    "Closed with <other.eml>".
+
+    The literal word "with" between the two filenames is optional; both .eml
+    extensions are optional. <other.eml> is recorded verbatim and need not exist
+    in the workflow.
+
+    Example:
+        cmd_close(["abcde.eml", "with", "xyz.eml"])
+        # -> moves abcde.eml to 06-archive, sets next_action, returns 0
+    """
+    # Accept "<file> with <other>" or "<file> <other>".
+    if len(argv) == 3 and argv[1].lower() == "with":
+        filename, other = argv[0], argv[2]
+    elif len(argv) == 2:
+        filename, other = argv[0], argv[1]
+    else:
+        print("usage: gtd.py close <file.eml> with <other.eml>", file=sys.stderr)
+        return 2
+
+    if not other.lower().endswith(".eml"):
+        other += ".eml"
+
+    base_dir = cfg_mod.load_config()["working_directory"]
+    src_path = fs.find_eml(base_dir, filename)
+    if src_path is None:
+        print(f"error: '{filename}' not found in any GTD folder under {base_dir}",
+              file=sys.stderr)
+        return 1
+
+    canonical = os.path.basename(src_path)
+    src_folder = os.path.basename(os.path.dirname(src_path))
+    if src_folder == cfg_mod.ARCHIVE_DIR:
+        print(f"error: '{canonical}' is already in {cfg_mod.ARCHIVE_DIR}; "
+              f"refusing to close it again", file=sys.stderr)
+        return 1
+
+    try:
+        fs.move_eml(src_path, base_dir, cfg_mod.ARCHIVE_DIR)
+    except FileExistsError:
+        print(f"error: a file named '{canonical}' already exists "
+              f"in {cfg_mod.ARCHIVE_DIR}", file=sys.stderr)
+        return 1
+
+    meta_mod.set_metadata_value(base_dir, canonical, "next_action",
+                                f"Closed with {other}")
+    print(f"Closed {canonical}: {src_folder} -> {cfg_mod.ARCHIVE_DIR} "
+          f"(closed with {other})")
+    return 0
+
+
+def cmd_pin(argv):
+    """
+    `gtd.py pin <file.eml>` — add the "pinned" flag to an email's metadata
+    flags field. A no-op (reported as such) if it is already pinned.
+
+    Example:
+        cmd_pin(["2026-06-03-x.eml"])  # -> adds "pinned", returns 0
+    """
+    return _toggle_flag(argv, "pin", "pinned", add=True)
+
+
+def cmd_unpin(argv):
+    """
+    `gtd.py unpin <file.eml>` — remove the "pinned" flag from an email's
+    metadata flags field. A no-op (reported as such) if it is not pinned.
+
+    Example:
+        cmd_unpin(["2026-06-03-x.eml"])  # -> removes "pinned", returns 0
+    """
+    return _toggle_flag(argv, "unpin", "pinned", add=False)
+
+
+def _toggle_flag(argv, verb, flag, add):
+    """
+    Shared implementation for `pin`/`unpin`: locate the email, then add or
+    remove `flag` from its metadata flags field. Returns a process exit code.
+
+    Example:
+        _toggle_flag(["x.eml"], "pin", "pinned", add=True)  # -> 0
+    """
+    if len(argv) != 1:
+        print(f"usage: gtd.py {verb} <file.eml>", file=sys.stderr)
+        return 2
+
+    base_dir = cfg_mod.load_config()["working_directory"]
+    path = fs.find_eml(base_dir, argv[0])
+    if path is None:
+        print(f"error: '{argv[0]}' not found in any GTD folder under {base_dir}",
+              file=sys.stderr)
+        return 1
+    canonical = os.path.basename(path)
+
+    if add:
+        changed = meta_mod.add_flag(base_dir, canonical, flag)
+        if changed:
+            print(f"{canonical}: added flag '{flag}'")
+        else:
+            print(f"{canonical}: already has flag '{flag}'; nothing to do.")
+    else:
+        changed = meta_mod.remove_flag(base_dir, canonical, flag)
+        if changed:
+            print(f"{canonical}: removed flag '{flag}'")
+        else:
+            print(f"{canonical}: does not have flag '{flag}'; nothing to do.")
+    return 0
+
+
 def cmd_metadata(argv):
     """
     `gtd.py metadata <file.eml> get <field>` — print a stored metadata value.
@@ -290,6 +402,21 @@ COMMANDS
             python3 gtd.py metadata 2026-06-03-project-pudding.eml get next_action
             python3 gtd.py metadata 2026-06-03-project-pudding.eml set next_action = "Reply by Fri"
             python3 gtd.py metadata 2026-06-03-project-pudding.eml set flags pinned
+
+    close <file.eml> with <other.eml>
+        Archive an email and record what closed it. Refuses if the email is
+        already in 06-archive; otherwise moves it there and sets its next_action
+        to "Closed with <other.eml>". The word "with" is optional, as are the
+        .eml extensions; <other.eml> need not exist in the workflow.
+        Examples:
+            python3 gtd.py close 2026-06-03-project-pudding.eml with 2026-06-10-reply.eml
+            python3 gtd.py close 2026-06-03-project-pudding 2026-06-10-reply
+
+    pin <file.eml>
+    unpin <file.eml>
+        Add or remove the "pinned" flag in an email's metadata flags field:
+            python3 gtd.py pin 2026-06-03-project-pudding.eml
+            python3 gtd.py unpin 2026-06-03-project-pudding.eml
 
     help
         Show this overview.

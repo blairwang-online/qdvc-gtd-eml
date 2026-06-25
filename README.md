@@ -33,6 +33,9 @@ python3 gtd.py list <folder>              # show just one folder (e.g. actionabl
 python3 gtd.py stats                      # count emails in each folder
 python3 gtd.py view <file.eml>            # preview one email (headers + body)
 python3 gtd.py alloc <file.eml> <dest>    # move an email to another folder
+python3 gtd.py close <file.eml> with <other.eml>   # archive + record what closed it
+python3 gtd.py pin <file.eml>             # add the "pinned" flag
+python3 gtd.py unpin <file.eml>           # remove the "pinned" flag
 python3 gtd.py metadata <file.eml> ...    # get/set a metadata.csv field
 python3 gtd.py help                       # full command overview
 ```
@@ -49,6 +52,21 @@ python3 gtd.py metadata <file.eml> set next_action = "Reply by Friday"
 
 Editable fields: `general_notes`, `project`, `next_action`, `flags`
 (`message_ref` is read-only).
+
+`close` archives an email and records what closed it. It refuses if the email
+is already in `06-archive/`; otherwise it moves the email there and sets its
+`next_action` to `Closed with <other.eml>`:
+
+```bash
+python3 gtd.py close 2026-06-03-project-pudding.eml with 2026-06-10-reply.eml
+```
+
+`pin` / `unpin` add or remove the `pinned` token in an email's `flags` field:
+
+```bash
+python3 gtd.py pin <file.eml>
+python3 gtd.py unpin <file.eml>
+```
 
 Page through a long report with colours and scrolling:
 

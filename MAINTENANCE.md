@@ -38,6 +38,8 @@ argument and forwards the rest to a handler in `gtd_modules/commands.py`:
 | `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
 | `python3 gtd.py alloc <file.eml> <dest>` | Find where an email is filed and move it to another folder. `dest` is an alias (`actionable`, `delegated`, `reference`, `archive`, `triage`, `input`) or a full folder name. |
+| `python3 gtd.py close <file.eml> with <other.eml>` | Archive an email and record what closed it. Refuses if it is already in `06-archive`; otherwise moves it there and sets `next_action` to `Closed with <other.eml>`. The word `with` is optional; `<other.eml>` need not exist. |
+| `python3 gtd.py pin <file.eml>` / `unpin <file.eml>` | Add or remove the `pinned` token in the email's `flags` metadata field. |
 | `python3 gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
 | `python3 gtd.py help` | Print the command overview. |
 
@@ -76,7 +78,7 @@ config.yml                # user settings (see §5)
 gtd_modules/
     __init__.py           # package docstring only
     config.py             # settings, constants, colours, folder aliases, account normalisation
-    commands.py           # subcommand handlers: list, view, alloc, metadata, help
+    commands.py           # subcommand handlers: list, view, alloc, close, pin, unpin, metadata, help
     emailutil.py          # SHARED email parsing (headers, body, base64/QP, refs)
     fs.py                 # folder creation, listing, locating + moving files
     naming.py             # filename-convention generation
@@ -209,6 +211,24 @@ alias into a folder name, `fs.find_eml()` locates the file, and `fs.move_eml()`
 relocates it. No-ops (already in the destination) and collisions are reported
 without touching `metadata.csv` — metadata keys off the filename, which `alloc`
 never changes, so no resync is needed.
+
+**`close`** (`commands.cmd_close`) — parses `<file> [with] <other>` (the literal
+`with` is optional), then `fs.find_eml()` locates the file. If it is already in
+`06-archive` the command refuses (exit 1) and does nothing else. Otherwise it
+`fs.move_eml()`s the file into `06-archive` and calls
+`metadata.set_metadata_value()` to set `next_action` to `Closed with <other>`.
+`<other>` is normalised to end in `.eml` but is otherwise recorded verbatim and
+is **not** required to exist in the workflow. Because `set_metadata_value` runs
+a full `sync_metadata` first, the just-moved file is reconciled before its
+`next_action` is written.
+
+**`pin` / `unpin`** (`commands.cmd_pin` / `cmd_unpin`, sharing
+`commands._toggle_flag`) — `fs.find_eml()` locates the file, then
+`metadata.add_flag()` / `metadata.remove_flag()` add or remove the `pinned`
+token in the space-separated `flags` field. Both are idempotent: adding a flag
+that is already present, or removing one that is absent, is reported as a no-op.
+Flags are stored as space-separated tokens in the single `flags` column, so
+these helpers split/rejoin rather than introducing a new column.
 
 **`metadata`** (`commands.cmd_metadata`) — `fs.find_eml()` resolves the
 canonical filename (extension optional), then `metadata.get_metadata_value()` /
@@ -352,6 +372,9 @@ python3 gtd.py view <the-new-filename>
 python3 gtd.py alloc <the-new-filename> delegated   # should move it to 04-delegated
 python3 gtd.py metadata <the-new-filename> set next_action = "Reply soon"
 python3 gtd.py metadata <the-new-filename> get next_action   # -> Reply soon
+python3 gtd.py pin <the-new-filename>     # adds "pinned" to flags
+python3 gtd.py unpin <the-new-filename>   # removes it again
+python3 gtd.py close <the-new-filename> with some-reply.eml   # archives + sets next_action
 ```
 
 Useful checks when touching the relevant area:
@@ -364,6 +387,11 @@ Useful checks when touching the relevant area:
   `NO_COLOR=1 python3 gtd.py list | cat -v` emits zero escape sequences.
 - **alloc**: moving to a folder the file is already in should no-op; an
   unknown destination should exit 2; a missing file should exit 1.
+- **close**: closing an email not yet archived should move it to `06-archive`
+  and set `next_action` to `Closed with <other.eml>`; closing one already in
+  `06-archive` should exit 1 and change nothing; the `with` keyword is optional.
+- **pin/unpin**: `pin` then `pin` again should report the second as a no-op;
+  `unpin` should drop only the `pinned` token, leaving any other flags intact.
 - **metadata**: `set` then `get` should round-trip; setting a read-only field
   (`message_ref`) or unknown field should exit 2; other fields must be
   preserved across an edit.
