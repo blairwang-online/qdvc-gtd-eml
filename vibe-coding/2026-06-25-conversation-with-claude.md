@@ -200,3 +200,59 @@ A small bonus from reusing `fs.find_eml` for `other`: I dropped the old manual `
 I updated the docstring, `gtd help` text, README, and MAINTENANCE (command table, §6 flow, §9 test note) to reflect that `<other.eml>` must exist. The zsh completion already offered only existing `.eml` files for that argument, so it needed no change. All files retain their trailing newline.
 
 _(Attached: all other files modified in this commit.)_
+
+## 9. User request
+
+commands.py is getting really big now at just under 500 lines. Please refactor it into multiple files, one for each command, e.g., cmd_list.py, cmd_stats.py, etc.
+
+## 10. LLM response
+
+This is a real refactor with interdependencies, so let me first read the full file and understand the shared helpers before splitting.Now let me check how `gtd.py` imports these (the dispatcher) so I keep the public interface stable.Now I understand the structure fully. My refactor plan:
+
+Create a `gtd_modules/commands/` subpackage, with one file per command (`list.py`, `stats.py`, `view.py`, `alloc.py`, `search.py`, `close.py`, `pin.py` (holds pin+unpin since they share `_toggle_flag`), `metadata.py`, `help.py`). The package's `__init__.py` re-exports `cmd_list`, `cmd_stats`, etc., plus `HELP_TEXT`, so that `from gtd_modules import commands` and `commands.cmd_list` continue to work unchanged. This keeps `gtd.py` and the dispatcher untouched.
+
+One naming concern: `gtd_modules/commands/metadata.py` would shadow nothing problematic since within the subpackage I'll import the metadata *module* as `from .. import metadata as meta_mod` (relative to parent package), avoiding collision with the local file name. Let me verify that works — `from .. import metadata` from inside `gtd_modules.commands.metadata` refers to `gtd_modules.metadata`, which is correct and unambiguous.
+
+Let me build the subpackage. First, convert `commands.py` to a package directory.Now create each command module. Start with `list.py`.Now `pin.py`, holding `cmd_pin`, `cmd_unpin`, and the shared `_toggle_flag`.Now `metadata.py` (the command). Note the relative import `from .. import metadata as meta_mod` correctly points to `gtd_modules.metadata`, not this file.Now `help.py`, holding `HELP_TEXT` and `cmd_help`.Now the package `__init__.py` that re-exports everything so `commands.cmd_list`, `commands.HELP_TEXT`, etc. keep working exactly as before.Now remove the old file and clear stale bytecode, then test.Imports work and the public interface is preserved. Now a full end-to-end functional test across every command to confirm nothing broke.Every command works correctly after the refactor. The only error is a harmless shell-ism (`${PIPESTATUS[0]}` under `sh` not bash) in my test script, not in the code — the `close with missing` command itself printed the correct error. Let me confirm its exit code properly.All exit codes correct and every module compiles. Let me verify the `HELP_TEXT` is byte-identical to the original by checking against git.Let me check the actual difference — likely just my regex extraction, not the content.That diff is comparing against the *committed* `HEAD` version (which predates the search/close/pin additions). My new `HELP_TEXT` correctly contains all the newer sections — the comparison is just against an old git revision, not the current working file. The HELP_TEXT content is intact (I copied it verbatim from the working file). Good.
+
+Now I need to update the documentation. The MAINTENANCE.md code-layout block describes `commands.py` as a single file; that needs updating. Let me find references.The references like `commands.cmd_list`, `commands._toggle_flag`, `commands.HELP_TEXT` are still accurate (the package re-exports them). I mainly need to update: the code-layout block (line 82), the prose at lines 33/99/182 that calls it a file, the mermaid diagram, and the "Add a subcommand" guidance. Let me view those regions.Now the "Add/rename/remove a subcommand" guidance in §8. Let me view it.Let me look for where the doc explains how to add a new command end-to-end (there's often a checklist). Let me search.I'll add a short "Adding a new subcommand" note in §8 since the layout changed materially — it's the natural place developers will look. Let me append it.Now check the §6 `help` flow line and any "in `commands.py`" mention I may have missed, plus README. Also check `gtd_modules/__init__.py` docstring doesn't list commands.No remaining `commands.py` references. Let me check whether README has a project-structure / file-layout section that lists modules.README doesn't list modules (it defers to MAINTENANCE), so no README change needed for the refactor. The zsh completion references command *names*, not the file, so it's unaffected. 
+
+Now let me run the full test suite one more time on a clean checkout state, and verify trailing newlines on all new/changed files.All files end with a newline. Let me run the final comprehensive functional pass and confirm line counts of the new modules (showing the refactor achieved its goal).Those remaining references are only in the `vibe-coding/` conversation logs (historical transcripts), which I should not modify — they're records of past sessions. All live code and docs are clean.
+
+The refactor succeeded: the single 499-line file is now nine focused modules (the largest is `help.py` at 95 lines, mostly the help text; the rest are 34–87 lines). Let me do the final full functional pass.Array syntax needs bash. Let me rerun with bash explicitly.13/14 — and the one "fail" is just my test grepping for the literal "GTD" (the help text says "a Getting Things Done workflow", lowercase). The help command itself works fine (I confirmed earlier it prints the full overview). Every command passes functionally.
+
+Let me present the refactored files. Since this created a new package, I'll present the new modules plus the updated MAINTENANCE.md.Done. I split the 499-line `gtd_modules/commands.py` into a `gtd_modules/commands/` **package**, one module per command.
+
+**Important: this replaces a file with a directory.** When you apply this, delete the old `gtd_modules/commands.py` and create the `gtd_modules/commands/` directory with the ten files attached above. (`commands.py` → `commands/`.)
+
+**New layout**
+
+```
+gtd_modules/commands/
+    __init__.py    # re-exports every cmd_* handler + HELP_TEXT
+    list.py        # cmd_list          (62 lines)
+    stats.py       # cmd_stats         (39)
+    view.py        # cmd_view          (34)
+    alloc.py       # cmd_alloc         (57)
+    search.py      # cmd_search        (51)
+    close.py       # cmd_close         (73)
+    pin.py         # cmd_pin, cmd_unpin, _toggle_flag  (68)
+    metadata.py    # cmd_metadata      (87)
+    help.py        # cmd_help + HELP_TEXT  (95)
+```
+
+**Key design choices**
+
+The package `__init__.py` re-exports all handlers, so the public interface is unchanged: `from gtd_modules import commands` then `commands.cmd_list`, `commands.HELP_TEXT`, `commands._toggle_flag` all still resolve exactly as before. That means `gtd.py` and its `COMMANDS` dispatch dict needed **no changes at all** — I left them untouched.
+
+`pin` and `unpin` share a module because they share the private `_toggle_flag` helper — grouping by cohesion rather than dogmatically one-command-per-file. The handler logic itself is copied verbatim (same behaviour, same exit codes); only the imports changed to package-relative form (`from .. import fs`, etc.).
+
+One naming subtlety worth noting: `commands/metadata.py` (the command) sits next to `gtd_modules/metadata.py` (the data store). Inside the command module, `from .. import metadata as meta_mod` unambiguously refers to the store, so there's no shadowing — I added a docstring note flagging this for future maintainers.
+
+**Verification**
+
+Every command was tested end-to-end (13/14 automated checks pass; the one "failure" is my test grepping for the wrong literal, not a code issue). All modules compile, exit codes are preserved (bad command → 2, missing file → 1, etc.), and `HELP_TEXT` is intact.
+
+I updated MAINTENANCE.md throughout: the dispatch prose, the code-layout tree (now showing the package), the dependency graph and its mermaid diagram, the §6 flow intro, and a new "Adding a new subcommand" checklist reflecting the package workflow. README needed no change (it defers to MAINTENANCE for layout), and the zsh completion is unaffected since it keys off command names. All files end with a trailing newline.
+
+_(Attached: all other files modified in this commit.)_

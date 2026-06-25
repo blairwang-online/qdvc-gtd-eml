@@ -30,7 +30,8 @@ The same `gtd.py` also **previews** a single email in a terminal- and
 ## 2. The single entry point
 
 `gtd.py` is a thin **command dispatcher**. It takes a subcommand as its first
-argument and forwards the rest to a handler in `gtd_modules/commands.py`:
+argument and forwards the rest to a handler in the `gtd_modules/commands/`
+package (one module per command):
 
 | Command | Purpose |
 | --- | --- |
@@ -79,7 +80,17 @@ config.yml                # user settings (see §5)
 gtd_modules/
     __init__.py           # package docstring only
     config.py             # settings, constants, colours, folder aliases, account normalisation
-    commands.py           # subcommand handlers: list, view, alloc, close, pin, unpin, metadata, help
+    commands/             # subcommand handlers, one module per command
+        __init__.py       # re-exports every cmd_* handler + HELP_TEXT
+        list.py           # cmd_list
+        stats.py          # cmd_stats
+        view.py           # cmd_view
+        alloc.py          # cmd_alloc
+        search.py         # cmd_search
+        close.py          # cmd_close
+        pin.py            # cmd_pin, cmd_unpin (+ shared _toggle_flag)
+        metadata.py       # cmd_metadata
+        help.py           # cmd_help (+ HELP_TEXT)
     emailutil.py          # SHARED email parsing (headers, body, base64/QP, refs)
     fs.py                 # folder creation, listing, locating + moving files
     naming.py             # filename-convention generation
@@ -96,8 +107,10 @@ misc/
 
 ## 4. Module dependency graph
 
-Arrows mean "imports / depends on". `gtd.py` dispatches into `commands.py`,
-which is the hub that wires the feature modules together. `config.py`,
+Arrows mean "imports / depends on". `gtd.py` dispatches into the `commands`
+package, whose modules wire the feature modules together (the package
+`__init__.py` re-exports each handler, so `commands.cmd_*` and
+`commands.HELP_TEXT` still resolve from one import). `config.py`,
 `emailutil.py`, and `naming.py` are leaf modules (no internal dependencies),
 which makes them the safest to edit in isolation.
 
@@ -106,7 +119,7 @@ graph TD
     gtd[gtd.py]
 
     subgraph gtd_modules
-        commands[commands.py]
+        commands[commands/ package]
         config[config.py]
         emailutil[emailutil.py]
         naming[naming.py]
@@ -120,7 +133,7 @@ graph TD
     %% entry point dispatches into the command hub
     gtd --> commands
 
-    %% command hub pulls in every feature module
+    %% command modules pull in the feature modules they need
     commands --> config
     commands --> fs
     commands --> emailutil
@@ -179,7 +192,10 @@ lower-cased, a missing `display_name` defaults to the address, and an unknown
 
 ## 6. How commands flow
 
-`gtd.py` maps the first argument to a handler in `commands.py`, then calls it.
+`gtd.py` maps the first argument to a handler exported by the `commands`
+package, then calls it. Each handler lives in its own module (e.g. `cmd_list`
+in `commands/list.py`), but the package re-exports them all, so the dispatch
+table in `gtd.py` keeps using `commands.cmd_list` and friends.
 
 **`list [folder]`** (`commands.cmd_list`) — the full workflow:
 
@@ -390,6 +406,21 @@ Note `get_email_body_text(message, render_html=False)`: the report/ingest path
 (`list`) only needs raw text for scanning, while the preview (`view`) passes
 `render_html=True` to get HTML converted to readable text. Keep that single
 source of truth rather than reintroducing a second body extractor.
+
+### Adding a new subcommand
+Commands live one-per-module under `gtd_modules/commands/`. To add `foo`:
+1. Create `gtd_modules/commands/foo.py` with a `cmd_foo(argv)` handler that
+   returns an exit code (use an existing module as a template; import shared
+   modules from the parent package, e.g. `from .. import fs`).
+2. Re-export it from `gtd_modules/commands/__init__.py` (add the `from .foo
+   import cmd_foo` line and list `cmd_foo` in `__all__`).
+3. Register it in the `COMMANDS` dict in `gtd.py` (`"foo": commands.cmd_foo`).
+4. Add a `foo` section to `HELP_TEXT` in `commands/help.py`, update this file
+   and `README.md`, and update `misc/_gtd` (see §7) if the CLI surface changed.
+
+Closely related commands can share a module (e.g. `pin.py` holds `cmd_pin`,
+`cmd_unpin`, and their private `_toggle_flag` helper) — group by cohesion, not
+strictly one command per file.
 
 ---
 
