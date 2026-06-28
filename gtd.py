@@ -12,6 +12,7 @@ Folder structure (relative to working_directory, set in config.yml):
 
 Commands (run `gtd.py help` for details):
     gtd.py list [folder]              ingest new input + print the status report
+    gtd.py export <format> [out]      export all tracked emails to a data format
     gtd.py search <text>              find report entries matching <text>
     gtd.py stats                      show how many emails are in each folder
     gtd.py view <file.eml>            preview a single email
@@ -34,6 +35,7 @@ from gtd_modules import commands
 # and returns an exit code.
 COMMANDS = {
     "list": commands.cmd_list,
+    "export": commands.cmd_export,
     "search": commands.cmd_search,
     "stats": commands.cmd_stats,
     "view": commands.cmd_view,

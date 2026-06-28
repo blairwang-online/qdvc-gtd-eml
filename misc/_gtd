@@ -80,6 +80,7 @@ _gtd() {
     local -a subcommands
     subcommands=(
         'list:Print the status report (optionally one folder)'
+        'export:Export all tracked emails to a data format'
         'search:Find report entries matching some text'
         'stats:Show how many emails are in each folder'
         'view:Preview a single email'
@@ -91,10 +92,12 @@ _gtd() {
         'help:Show the command overview'
     )
 
-    local -a destinations fields
+    local -a destinations fields formats
     # Folder aliases accepted by `alloc` and `list` (mirror FOLDERS_BY_ALIAS).
     destinations=(actionable delegated reference archive triage input)
     fields=(general_notes project next_action flags message_ref)
+    # Export formats (mirror commands/export.py FORMATS).
+    formats=(masterdetail_yaml)
 
     # $words excludes the command word offset by $CURRENT; position 1 is the
     # subcommand, 2+ are its arguments.
@@ -108,6 +111,14 @@ _gtd() {
         list)
             # Optional single folder to show just that segment.
             (( CURRENT == 3 )) && _describe -t folders 'folder' destinations
+            ;;
+        export)
+            # Position 3 is the format; position 4 is an optional output file.
+            if (( CURRENT == 3 )); then
+                _describe -t formats 'format' formats
+            elif (( CURRENT == 4 )); then
+                _files
+            fi
             ;;
         view)
             (( CURRENT == 3 )) && _gtd_eml_files
@@ -146,3 +157,4 @@ _gtd() {
 }
 
 _gtd "$@"
+

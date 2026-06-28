@@ -30,6 +30,7 @@ keeps in sync.
 ```bash
 python3 gtd.py list                       # ingest new files + print the report
 python3 gtd.py list <folder>              # show just one folder (e.g. actionable)
+python3 gtd.py export <format> [out]      # export all data to a data format
 python3 gtd.py search <text>              # find report entries matching <text>
 python3 gtd.py stats                      # count emails in each folder
 python3 gtd.py view <file.eml>            # preview one email (headers + body)
@@ -53,6 +54,24 @@ python3 gtd.py metadata <file.eml> set next_action = "Reply by Friday"
 
 Editable fields: `general_notes`, `project`, `next_action`, `flags`
 (`message_ref` is read-only).
+
+`export` writes every tracked email (the same set `gtd.py list` reports on:
+triage, actionable, delegated, reference, archive) to another data format. The
+only format so far is `masterdetail_yaml`, a single YAML (`.yml`) document
+conforming to the
+[master-detail viewer SPEC](https://github.com/blairwang-online/qdvc-masterdetail-viewer/blob/main/SPEC.md)
+— a top-level sequence of items, one per email, each a mapping with a `title`
+heading (the subject) plus its folder, date, correspondents, and any metadata
+(project, next action, notes, flags). With no output file it writes
+`<working_directory>/export-masterdetail.yml`; pass a path to write elsewhere:
+
+```bash
+python3 gtd.py export masterdetail_yaml
+python3 gtd.py export masterdetail_yaml ~/gtd-export.yml
+```
+
+Like `search`, it is read-only on the workflow: it reconciles `metadata.csv`
+but does not ingest `01-input/` or move any email.
 
 `search` looks through the full report (everything `gtd.py list` prints) for a
 string and shows the matching entries, with the matched text highlighted. The

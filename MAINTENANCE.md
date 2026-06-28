@@ -36,6 +36,7 @@ package (one module per command):
 | Command | Purpose |
 | --- | --- |
 | `python3 gtd.py list [folder]` | Run the full workflow: ingest → sync metadata → print report. With a folder name/alias, print just that segment. |
+| `python3 gtd.py export <format> [output-file]` | Export every tracked email (triage, actionable, delegated, reference, archive) to another data format. Currently one format: `masterdetail_yaml` (a single `.yml` conforming to the master-detail viewer SPEC). Read-only on the workflow (reconciles `metadata.csv`, no ingest/moves). |
 | `python3 gtd.py search <text>` | Search the full report for a literal, case-insensitive string (joined from all words after `search`, `#`/`@` included) and print the matching entries with the matched text highlighted. Read-only: no ingest, no moves. |
 | `python3 gtd.py stats` | Print each workflow folder and its `.eml` count, plus a total. |
 | `python3 gtd.py view <file.eml>` | Print one email (headers, attachments, body). The `.eml` extension is optional. Pipe-friendly: `… \| less` or `… \| glow -`. |
@@ -83,6 +84,7 @@ gtd_modules/
     commands/             # subcommand handlers, one module per command
         __init__.py       # re-exports every cmd_* handler + HELP_TEXT
         list.py           # cmd_list
+        export.py         # cmd_export
         stats.py          # cmd_stats
         view.py           # cmd_view
         alloc.py          # cmd_alloc
@@ -97,6 +99,7 @@ gtd_modules/
     ingest.py             # rename + move 01-input → 02-triage
     metadata.py           # metadata.csv load/sync + per-field get/set
     report.py             # colour-coded status report + `search` over its entries
+    export.py             # build + serialise the master-detail data export
     preview.py            # markdown-friendly single-message render
 misc/
     _gtd                  # zsh (oh-my-zsh) Tab-completion for the `gtd` command
@@ -108,32 +111,18 @@ misc/
 ## 4. Module dependency graph
 
 Arrows mean "imports / depends on". `gtd.py` dispatches into the `commands`
-package; each command is its own module (re-exported by the package
-`__init__.py`, so `commands.cmd_*` and `commands.HELP_TEXT` still resolve from
-one import) and pulls in only the feature modules it actually needs. Almost
-every command depends on `config` and `fs`; the heavier feature modules
-(`ingest`, `report`, `preview`, `metadata`) are used by just a few. `config.py`,
+package, whose modules wire the feature modules together (the package
+`__init__.py` re-exports each handler, so `commands.cmd_*` and
+`commands.HELP_TEXT` still resolve from one import). `config.py`,
 `emailutil.py`, and `naming.py` are leaf modules (no internal dependencies),
-which makes them the safest to edit in isolation. `help` is itself a leaf — it
-imports nothing and only prints `HELP_TEXT`.
+which makes them the safest to edit in isolation.
 
 ```mermaid
 graph TD
     gtd[gtd.py]
 
-    subgraph commands [commands/ package]
-        c_list[list.py]
-        c_search[search.py]
-        c_stats[stats.py]
-        c_view[view.py]
-        c_alloc[alloc.py]
-        c_close[close.py]
-        c_pin[pin.py]
-        c_meta[metadata.py]
-        c_help[help.py]
-    end
-
-    subgraph features [feature modules]
+    subgraph gtd_modules
+        commands[commands/ package]
         config[config.py]
         emailutil[emailutil.py]
         naming[naming.py]
@@ -141,58 +130,24 @@ graph TD
         metadata[metadata.py]
         ingest[ingest.py]
         report[report.py]
+        export[export.py]
         preview[preview.py]
     end
 
-    %% entry point dispatches to each command handler
-    gtd --> c_list
-    gtd --> c_search
-    gtd --> c_stats
-    gtd --> c_view
-    gtd --> c_alloc
-    gtd --> c_close
-    gtd --> c_pin
-    gtd --> c_meta
-    gtd --> c_help
+    %% entry point dispatches into the command hub
+    gtd --> commands
 
-    %% each command imports only the feature modules it needs
-    c_list --> config
-    c_list --> fs
-    c_list --> ingest
-    c_list --> metadata
-    c_list --> report
+    %% command modules pull in the feature modules they need
+    commands --> config
+    commands --> fs
+    commands --> emailutil
+    commands --> ingest
+    commands --> metadata
+    commands --> preview
+    commands --> report
+    commands --> export
 
-    c_search --> config
-    c_search --> fs
-    c_search --> metadata
-    c_search --> report
-
-    c_stats --> config
-    c_stats --> fs
-
-    c_view --> config
-    c_view --> fs
-    c_view --> emailutil
-    c_view --> preview
-
-    c_alloc --> config
-    c_alloc --> fs
-
-    c_close --> config
-    c_close --> fs
-    c_close --> metadata
-
-    c_pin --> config
-    c_pin --> fs
-    c_pin --> metadata
-
-    c_meta --> config
-    c_meta --> fs
-    c_meta --> metadata
-
-    %% c_help imports nothing (leaf)
-
-    %% internal feature-module edges
+    %% internal package edges
     fs --> config
     metadata --> config
     metadata --> fs
@@ -205,7 +160,12 @@ graph TD
     report --> fs
     preview --> emailutil
 
-    %% leaf modules (no internal imports): config, emailutil, naming, commands/help.py
+    export --> config
+    export --> emailutil
+    export --> fs
+    export --> report
+
+    %% leaf modules (no internal imports): config, emailutil, naming
 ```
 
 ---
@@ -269,6 +229,20 @@ report.
 **`stats`** (`commands.cmd_stats`) — `fs.ensure_folders()` then
 `fs.list_eml_files()` per folder, printing each count and a total. Read-only;
 does not ingest or modify anything.
+
+**`export`** (`commands.cmd_export`) — selects a format from its `FORMATS`
+table (currently only `masterdetail_yaml`), resolves the output path (default
+`<working_directory>/export-masterdetail.yml`, or the given path with the
+format's extension appended if missing), then `sync_metadata()` /
+`load_metadata()` so annotations are current and `export.build_export()` to turn
+every tracked email into a list of master-detail items. The items are built in
+report order (triage → actionable → delegated → reference → archive; oldest →
+newest within a folder) so an export mirrors `gtd list`. The format's `dump`
+(`export.dump_masterdetail_yaml`) serialises them. Like `search` it is read-only
+on the workflow — it reconciles `metadata.csv` but never ingests `01-input` or
+moves anything. A bad/unreadable `.eml` is emitted as a placeholder item rather
+than aborting the whole export. Adding a format is: write a `dump_*` in
+`export.py` and register it in `FORMATS` (and the zsh `formats` array).
 
 **`search`** (`commands.cmd_search`) — joins all words after `search` into one
 query (so `gtd.py search project pudding` matches the literal `project pudding`,
@@ -422,6 +396,29 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
 - `gtd.py` swallows `BrokenPipeError` so quitting `less` early (or piping to
   `head`) doesn't dump a traceback — this covers `view` output too.
 
+### Export (`export.py`)
+- `masterdetail_yaml` targets the master-detail viewer SPEC
+  (https://github.com/blairwang-online/qdvc-masterdetail-viewer/blob/main/SPEC.md).
+  The document MUST be a top-level **sequence** of items, each a mapping with a
+  reserved `title` field; we build one item per email.
+- **Key/insertion order matters**: per SPEC §3.4, field order is YAML insertion
+  order, so `build_item` inserts `title` first (it is the detail heading and
+  must not be repeated) and the rest in reading order. Serialisation uses
+  `yaml.safe_dump(..., sort_keys=False)` — do not re-enable key sorting.
+- **No native temporal values** (SPEC §7.1): the email date is stringified to a
+  plain ISO `YYYY-MM-DD` in `build_item`, so PyYAML never emits a native YAML
+  date whose form could diverge across renderers. If you add a datetime field,
+  stringify it the same way (ISO 8601, space between date and time).
+- Empty metadata fields are omitted entirely (there are no required fields
+  beyond `title`), keeping exports tidy.
+- `01-input` is excluded: those files are not yet ingested/renamed, so they are
+  not part of the tracked dataset `gtd list`/`export` cover.
+- Items are ordered to mirror the report (triage → actionable → delegated →
+  reference → archive; oldest → newest within a folder).
+- Adding a format: write a `dump_<format>(items, out_path)` in `export.py` and
+  register it in `commands/export.py`'s `FORMATS` (ext, default basename, dump),
+  then add it to the zsh `formats` array.
+
 ### Shell completion (`misc/_gtd`)
 The zsh completion script duplicates parts of the CLI surface, so it can drift
 out of sync with the Python code. When you make a **user-facing CLI change**,
@@ -484,6 +481,7 @@ mkdir -p data/01-input          # point working_directory at ./data in config.ym
 # drop a sample .eml into data/01-input, then:
 python3 gtd.py list              # should ingest, write metadata.csv, print report
 python3 gtd.py list delegated    # just the delegated segment
+python3 gtd.py export masterdetail_yaml   # writes export-masterdetail.yml in working_directory
 python3 gtd.py search pudding    # entries whose report text contains "pudding"
 python3 gtd.py stats             # per-folder counts + total
 python3 gtd.py view <the-new-filename>
@@ -538,11 +536,12 @@ done
 ## 10. Dependencies
 
 - **Python 3.8+** (uses f-strings, `email` stdlib, type-free code).
-- **PyYAML** — only needed if `config.yml` is present. Install with
-  `pip install pyyaml`.
+- **PyYAML** — needed if `config.yml` is present, and also by
+  `gtd.py export masterdetail_yaml` (which serialises YAML) regardless of
+  whether a `config.yml` exists. Install with `pip install pyyaml`. A missing
+  library raises a clear error from whichever path needs it.
 - No other third-party packages. The `email`, `csv`, `re`, `os`, and `datetime`
   modules are all standard library.
 
 Optional external tools the output is designed to play nicely with: `less` and
 [`glow`](https://github.com/charmbracelet/glow) for the `view` output.
-

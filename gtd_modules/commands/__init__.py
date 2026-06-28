@@ -2,6 +2,7 @@
 Subcommand implementations for the `gtd.py` CLI, one module per command:
 
     list.py      -> cmd_list
+    export.py    -> cmd_export
     stats.py     -> cmd_stats
     view.py      -> cmd_view
     alloc.py     -> cmd_alloc
@@ -20,6 +21,7 @@ argument dispatcher; the real work lives in these modules.
 
 from .alloc import cmd_alloc
 from .close import cmd_close
+from .export import cmd_export
 from .help import HELP_TEXT, cmd_help
 from .list import cmd_list
 from .metadata import cmd_metadata
@@ -30,6 +32,7 @@ from .view import cmd_view
 
 __all__ = [
     "cmd_list",
+    "cmd_export",
     "cmd_stats",
     "cmd_view",
     "cmd_alloc",

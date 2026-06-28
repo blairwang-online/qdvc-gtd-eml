@@ -19,6 +19,20 @@ COMMANDS
             FORCE_COLOR=1 python3 gtd.py list | less -R
             python3 gtd.py list actionable
 
+    export <format> [output-file]
+        Export every tracked email (the same set `list` reports on: triage,
+        actionable, delegated, reference, archive) to another data format.
+        Read-only: it reconciles metadata.csv but does not ingest 01-input or
+        move anything. Available formats:
+            masterdetail_yaml   one YAML (.yml) document conforming to the
+                                master-detail viewer SPEC (a sequence of items,
+                                one per email, each with a `title` heading)
+        With no output file, masterdetail_yaml writes
+        <working_directory>/export-masterdetail.yml; give a path to write
+        elsewhere (a ".yml" extension is appended if omitted). Examples:
+            python3 gtd.py export masterdetail_yaml
+            python3 gtd.py export masterdetail_yaml ~/gtd-export.yml
+
     stats
         Show each workflow folder and how many emails it currently holds,
         plus a total:
