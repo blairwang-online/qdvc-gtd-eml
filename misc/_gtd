@@ -89,6 +89,7 @@ _gtd() {
         'pin:Add the "pinned" flag to an email'
         'unpin:Remove the "pinned" flag from an email'
         'metadata:Get or set a metadata.csv field'
+        'metadata_check:Reconcile metadata.csv and report dangling references'
         'help:Show the command overview'
     )
 
@@ -157,4 +158,3 @@ _gtd() {
 }
 
 _gtd "$@"
-

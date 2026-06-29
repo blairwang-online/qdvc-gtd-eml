@@ -39,6 +39,7 @@ python3 gtd.py close <file.eml> with <other.eml>   # archive + record what close
 python3 gtd.py pin <file.eml>             # add the "pinned" flag
 python3 gtd.py unpin <file.eml>           # remove the "pinned" flag
 python3 gtd.py metadata <file.eml> ...    # get/set a metadata.csv field
+python3 gtd.py metadata_check             # reconcile metadata.csv + report dangling refs
 python3 gtd.py help                       # full command overview
 ```
 
@@ -54,6 +55,13 @@ python3 gtd.py metadata <file.eml> set next_action = "Reply by Friday"
 
 Editable fields: `general_notes`, `project`, `next_action`, `flags`
 (`message_ref` is read-only).
+
+`metadata_check` reconciles `metadata.csv` with the `.eml` files on disk (adding
+rows for any not yet tracked, dropping rows for files that have vanished — the
+same sync `list` does), then flags stale references: rows whose `eml_filename`
+no longer exists, and rows whose `next_action` mentions an `*.eml` filename that
+is not present anywhere in the workflow. It is read-only on the emails
+themselves and exits non-zero if anything dangling is found.
 
 `export` writes every tracked email (the same set `gtd.py list` reports on:
 triage, actionable, delegated, reference, archive) to another data format. The

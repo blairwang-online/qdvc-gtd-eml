@@ -73,6 +73,17 @@ COMMANDS
             python3 gtd.py metadata 2026-06-03-project-pudding.eml set next_action = "Reply by Fri"
             python3 gtd.py metadata 2026-06-03-project-pudding.eml set flags pinned
 
+    metadata_check
+        Reconcile metadata.csv with the .eml files on disk, then report stale
+        references. Creates rows for any EML files not yet tracked and drops
+        rows for files that have vanished (the same sync `list` performs), then
+        reports: (1) rows whose eml_filename no longer exists, and (2) rows
+        whose next_action mentions an "*.eml" filename that does not exist
+        anywhere in the workflow. Read-only on the emails themselves: it does
+        not ingest 01-input or move anything. Exits 1 if anything dangling is
+        found, 0 otherwise:
+            python3 gtd.py metadata_check
+
     close <file.eml> with <other.eml>
         Archive an email and record what closed it. Refuses if the email is
         already in 06-archive; otherwise moves it there and sets its next_action

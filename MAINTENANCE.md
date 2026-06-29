@@ -44,6 +44,7 @@ package (one module per command):
 | `python3 gtd.py close <file.eml> with <other.eml>` | Archive an email and record what closed it. Refuses if it is already in `06-archive`; otherwise moves it there and sets `next_action` to `Closed with <other.eml>`. The word `with` is optional; `<other.eml>` must itself exist in the workflow (errors with no changes otherwise). |
 | `python3 gtd.py pin <file.eml>` / `unpin <file.eml>` | Add or remove the `pinned` token in the email's `flags` metadata field. |
 | `python3 gtd.py metadata <file.eml> get/set <field> [=] [value]` | Read or write a `metadata.csv` field. Editable: `general_notes`, `project`, `next_action`, `flags`; `message_ref` is read-only. |
+| `python3 gtd.py metadata_check` | Reconcile `metadata.csv` with the files on disk (same sync `list` does), then report rows whose `eml_filename` no longer exists and rows whose `next_action` references a missing `*.eml`. Read-only on the emails; exits 1 if anything dangling is found. |
 | `python3 gtd.py help` | Print the command overview. |
 
 `gtd.py` is deliberately thin (~75 lines): it maps subcommand names to handlers
@@ -298,6 +299,21 @@ canonical filename (extension optional), then `metadata.get_metadata_value()` /
 single edit, preserving all other fields. Editable fields are
 `metadata.EDITABLE_FIELDS`; `message_ref` is readable but not editable (it must
 stay in step with the filename suffix).
+
+**`metadata_check`** (`commands.cmd_metadata_check`, in `commands/check.py`) —
+a reconcile-and-audit pass. It reads `metadata.csv` *before* touching anything
+(`metadata.load_metadata`) and snapshots the on-disk set
+(`fs.all_existing_filenames`), so it can report the rows `sync_metadata` is
+about to prune. It then computes (1) rows whose `eml_filename` is absent from
+disk, and (2) rows whose `next_action` mentions an `*.eml` filename not present
+anywhere — using the module-level `_EML_IN_TEXT` regex (`\S+\.eml`,
+case-insensitive), per the spec that a filename is any space-unbroken run ending
+in `.eml`. Only after capturing both does it call `metadata.sync_metadata()`
+(the same reconcile `list` runs: blank rows for new files, pruning for vanished
+ones). It is read-only on the `.eml` files (no ingest, no moves) and returns 1
+when either list is non-empty, else 0 — so it doubles as a scriptable lint. The
+two reports are independent: a single `next_action` may contribute several
+dangling refs, and a row can appear in both lists.
 
 **`help`** (`commands.cmd_help`) — prints `commands.HELP_TEXT`.
 

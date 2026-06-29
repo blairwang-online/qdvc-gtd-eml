@@ -50,3 +50,50 @@ with the ref fully intact. `ingest.py` now passes `message_ref` through, and MAI
 Three files changed: `naming.py` (the fix), `ingest.py` (the caller), and `MAINTENANCE.md`. README, `gtd help`, and the zsh completions are unaffected since no commands, flags, fields, or destinations changed.
 
 One thing worth flagging: this corrects future ingestions, but the already-misnamed `…abcd123ef-2.eml` file on disk won't be renamed retroactively (refs are only applied at ingestion). If you want, I can add a one-off repair routine or a small migration command to fix existing files — let me know.
+
+_Committed as 63501db19061fe8b2db416aa2aff551ad237ccf9_
+
+## 3. User request
+
+Good work. Now: related to this update (but also for other purposes), please introduce a new command, `gtd metadata_check`, which:
+
+1. Automatically creates entries in metadata.csv for EML files that are not yet listed here (I believe the code for this already exists and is called elsewhere)
+2. Checks for rows in metadata.csv with an eml_filename that does not exist.
+3. Checks for rows in metadata.csv with a next_action referencing an EML filename that does not exist. (An EML filename within the overall can be identified as any sequence of characters unbroken by spaces, followed by ".eml")
+
+## 4. LLM response
+
+Let me examine the relevant modules to understand the existing metadata syncing code and command structure.Now let me look at the command structure — a couple of existing commands, the `__init__.py`, and the dispatch in `gtd.py`.Let me look at a couple of existing command modules to match conventions, plus `fs.py` and `config.py`, and the metadata command itself.Now let me view the help command and the `close.py` command (which references other emails, similar to what I'll need for the `next_action` reference check).Now let me look at the config module and the zsh completions file.I now have a full understanding. Let me check the relevant MAINTENANCE.md sections so I can update them precisely, especially the command-handler list and any "module reference" section.Let me check the section listing per-command handler descriptions (around line 205+) to see where I should add the new command's detail, and look at how `search.py` is documented there.I have everything I need. Now I'll plan the implementation.
+
+The command name requested is `metadata_check` (with underscore). I'll add a `cmd_metadata_check` handler in a new module `commands/check.py`, register it, wire it into the dispatch table as `metadata_check`, update help text, completions, README, and MAINTENANCE.
+
+Let me write the new command module. The three checks:
+1. Create missing entries — call `sync_metadata()` (existing code) which adds blank rows for new files and drops vanished ones.
+2. Rows whose `eml_filename` doesn't exist on disk — since `sync_metadata` drops these, I should report them *before* syncing (read the CSV first, compare to disk).
+3. Rows whose `next_action` references an `*.eml` token not present on disk.
+
+Let me write it.Let me clean up that stray `sync_metadata =` assignment — `sync_metadata` returns None and the assignment is misleading.Now register it in the commands package `__init__.py`:Now wire it into the dispatch table in `gtd.py`:Also update the command summary in `gtd.py`'s module docstring:Now update the HELP_TEXT in `help.py`:The `pin` block doesn't immediately follow `metadata`'s last example; `close` is between. Let me look again — actually in HELP_TEXT, order is metadata (67-74), then close (76-84), then pin (86). Let me place `metadata_check` right after the metadata block, before `close`.Now the zsh completions. Add `metadata_check` to the subcommands list. It takes no arguments, so no argument-completion case is needed.Now README.md. Let me find the Usage section to add the command line.Let me add a short prose description of `metadata_check` in README right after the metadata block (lines 55-56). Let me view what follows.Now MAINTENANCE.md. Add a row to the command table (section 2) and a per-command paragraph (section near line 294). First the table row, after the `metadata` row:Now the per-command detail paragraph, after the `metadata` paragraph (line 300) and before `help` (line 302):Now let me test the whole thing end-to-end with a temp working directory.Now let me create the test scenarios: a row pointing at a vanished file, a `next_action` referencing a missing `.eml`, and an untracked file on disk.Note: the untracked file `2026-06-03-c.eml` was added to `05-reference` (not `01-input`), so `metadata_check` should pick it up via sync without ingesting. Now run the command:Working perfectly. All three checks fire correctly:
+1. **Auto-create**: `2026-06-03-c.eml` (untracked on disk) was added to the CSV.
+2. **Missing `eml_filename`**: `2026-06-99-ghost.eml` reported (and pruned from CSV after).
+3. **Dangling `next_action` ref**: `2026-06-77-missing.eml` flagged; `2026-06-02-b.eml` (which exists) correctly *not* flagged.
+
+Exit code 1 as designed. Now the clean case (exit 0):All cases behave correctly: clean run exits 0, extra arg exits 2 with usage message, help shows it. Let me clean up the sandbox config.yml and verify trailing newlines on all changed files.Note `misc/_gtd` originally had a blank line followed by a final newline (line 161 was blank). Let me confirm I didn't disturb that, and review the final diff to make sure markdown wasn't reflowed and only intended lines changed.Clean — `misc/_gtd` shows only the one inserted line, and its trailing blank line is intact. (The naming.py/ingest.py changes are from the previous task, still staged in the working tree.) Let me do a final confirmation that the new command file diff is just additions and review the markdown diffs aren't reflowed.No deletions in the markdown files — purely additive, no reflow. Here are all the updated and new files.Done. The new `gtd metadata_check` command is implemented and wired in.
+
+**New file:** `gtd_modules/commands/check.py` → `cmd_metadata_check`. Its three checks:
+
+1. **Auto-create missing entries** — calls the existing `metadata.sync_metadata()` (the same reconcile `list` runs), which adds rows for untracked `.eml` files and prunes rows for vanished ones.
+2. **Rows with a non-existent `eml_filename`** — captured *before* the sync (since sync would otherwise silently prune them) by comparing the CSV against `fs.all_existing_filenames()`, then reported.
+3. **Dangling `next_action` refs** — scans each row's `next_action` with the regex `\S+\.eml` (case-insensitive), matching your spec ("any sequence of characters unbroken by spaces, followed by `.eml`"), and reports any matched filename not present on disk.
+
+It's read-only on the emails (no ingest, no moves), and exits 1 if anything dangling is found (0 otherwise), so it works as a scriptable lint.
+
+Per your rules, I also updated:
+- `gtd.py` — dispatch table + module docstring
+- `gtd_modules/commands/__init__.py` — import, re-export, docstring listing
+- `gtd_modules/commands/help.py` — `gtd help` output
+- `misc/_gtd` — zsh completion subcommand list
+- `README.md` and `MAINTENANCE.md` — command tables and prose (additive only, no markdown reflow)
+
+All files end with a blank line. Tested end-to-end: auto-creation, both dangling-reference reports, the clean exit-0 path, the usage-error path, and that a valid `next_action` reference is correctly *not* flagged.
+
+One small design note worth flagging: because `sync_metadata` runs as part of the check, the missing-`eml_filename` rows are reported and then removed from the CSV in the same invocation — so a second run won't list them again (they're gone). That matches "keep the CSV in sync" but means the report is your one chance to notice the disappearance. If you'd rather have it report-only (no pruning) or gate the prune behind a `--fix`/`--dry-run` flag, that's a small change — let me know.

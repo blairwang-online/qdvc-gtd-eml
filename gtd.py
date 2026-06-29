@@ -21,6 +21,7 @@ Commands (run `gtd.py help` for details):
     gtd.py pin <file.eml>             add the "pinned" flag
     gtd.py unpin <file.eml>           remove the "pinned" flag
     gtd.py metadata <file.eml> ...    get/set a metadata.csv field
+    gtd.py metadata_check             reconcile metadata.csv + report dangling refs
     gtd.py help                       show the command overview
 
 Implementation lives in the gtd_modules package; this file just dispatches.
@@ -44,6 +45,7 @@ COMMANDS = {
     "pin": commands.cmd_pin,
     "unpin": commands.cmd_unpin,
     "metadata": commands.cmd_metadata,
+    "metadata_check": commands.cmd_metadata_check,
     "help": commands.cmd_help,
 }
 

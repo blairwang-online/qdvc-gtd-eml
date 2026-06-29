@@ -10,6 +10,7 @@ Subcommand implementations for the `gtd.py` CLI, one module per command:
     close.py     -> cmd_close
     pin.py       -> cmd_pin, cmd_unpin (+ the shared _toggle_flag helper)
     metadata.py  -> cmd_metadata
+    check.py     -> cmd_metadata_check
     help.py      -> cmd_help (+ HELP_TEXT)
 
 Each handler takes the post-command argv list and returns a process exit code
@@ -20,6 +21,7 @@ argument dispatcher; the real work lives in these modules.
 """
 
 from .alloc import cmd_alloc
+from .check import cmd_metadata_check
 from .close import cmd_close
 from .export import cmd_export
 from .help import HELP_TEXT, cmd_help
@@ -41,6 +43,7 @@ __all__ = [
     "cmd_pin",
     "cmd_unpin",
     "cmd_metadata",
+    "cmd_metadata_check",
     "cmd_help",
     "HELP_TEXT",
 ]
