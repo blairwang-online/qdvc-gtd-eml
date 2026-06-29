@@ -343,6 +343,10 @@ These are the non-obvious rules baked into the code. Preserve them when editing.
   present, the **ref suffix is protected** and the subject slug is truncated to
   make room — never the ref.
 - Collisions across *all five folders* are avoided by appending `-2`, `-3`, …
+  When a message ref is present, the counter is inserted **before** the ref
+  suffix (`…-update-2-ref-<nanoid>`) and the slug — never the ref — is trimmed
+  to stay within `max_filename_chars`. Pass `message_ref` to
+  `naming.unique_filename` so it knows which suffix to protect.
 
 ### Message refs (`emailutil.find_message_ref`)
 - Pattern: `Message ref. <nanoid>` (case-insensitive, flexible spacing).

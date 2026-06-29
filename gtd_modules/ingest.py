@@ -32,7 +32,7 @@ def ingest_input_files(base_dir, max_chars):
         message_ref = emailutil.find_message_ref(message)
 
         base = naming.build_base_filename(date_dt, subject, max_chars, message_ref=message_ref)
-        new_name = naming.unique_filename(base, existing, max_chars)
+        new_name = naming.unique_filename(base, existing, max_chars, message_ref=message_ref)
         existing.add(new_name)
 
         os.rename(old_path, os.path.join(triage_path, new_name))

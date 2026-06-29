@@ -56,26 +56,46 @@ def build_base_filename(date_dt, subject, max_chars, message_ref=None):
     return base.strip("-")
 
 
-def unique_filename(base, existing, max_chars):
+def unique_filename(base, existing, max_chars, message_ref=None):
     """
     Given a base name (no extension) and a set of existing filenames, return a
     unique "<base>.eml". Appends "-N" before the extension on collision, keeping
     the total within max_chars.
 
+    When a message_ref is given, the "-ref-<nanoid>" suffix is protected: the
+    "-N" counter is inserted *before* the ref suffix, and any trimming needed to
+    fit max_chars eats into the subject slug rather than the ref. This mirrors
+    build_base_filename, which also never truncates the ref.
+
     Example:
         unique_filename("2026-06-12-meeting", {"2026-06-12-meeting.eml"}, 60)
         # -> "2026-06-12-meeting-2.eml"
+        unique_filename("2026-06-12-meeting-ref-8FKnj9Tx8d",
+                        {"2026-06-12-meeting-ref-8FKnj9Tx8d.eml"}, 40,
+                        message_ref="8FKnj9Tx8d")
+        # -> "2026-06-12-mee-2-ref-8FKnj9Tx8d.eml"
     """
     candidate = f"{base}.eml"
     if candidate not in existing:
         return candidate
 
+    ref_suffix = f"-ref-{message_ref}" if message_ref else ""
+    # The part of the base before the protected ref suffix; the "-N" counter is
+    # inserted here so the ref always survives intact.
+    if ref_suffix and base.endswith(ref_suffix):
+        head = base[: -len(ref_suffix)]
+    else:
+        ref_suffix = ""
+        head = base
+
     n = 2
     while True:
         suffix = f"-{n}"
-        max_base = max_chars - len(".eml") - len(suffix)
-        trimmed = base[:max_base].rstrip("-") if len(base) > max_base else base
-        candidate = f"{trimmed}{suffix}.eml"
+        # Reserve room for the counter and the (protected) ref suffix; the head
+        # gets whatever remains.
+        max_head = max_chars - len(".eml") - len(suffix) - len(ref_suffix)
+        trimmed = head[:max_head].rstrip("-") if len(head) > max_head else head
+        candidate = f"{trimmed}{suffix}{ref_suffix}.eml"
         if candidate not in existing:
             return candidate
         n += 1
